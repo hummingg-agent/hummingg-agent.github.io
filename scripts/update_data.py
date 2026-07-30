@@ -10,13 +10,12 @@ QQQ 月度行情自动更新 + 自动部署脚本
   1. 读取 src/qqq_monthly.json 最后一个日期
   2. 通过 iFinD 插件拉取该日期前 45 天 ~ 今天的 QQQ.O 月度前复权行情
   3. 只保留「已完结月份」的数据（过滤当月未完结的 K 线），去重后追加合并
-  4. 有新数据 → vercel build --prod && vercel deploy --prebuilt --prod
+  4. 有新数据 → git commit & push → GitHub Actions 自动构建并部署到 GitHub Pages
      没有新数据 → 直接结束，不部署
 
 依赖：
   - 本机 Kimi Work 已安装 iFinD 插件（脚本会自动定位）
-  - 项目已 npm install（vercel 在 devDependencies 中）
-  - 本机已执行过一次 vercel login
+  - 本机 gh CLI 已登录 hummingg-agent 并配置 git 凭证（gh auth setup-git）
 """
 import json
 import os
@@ -98,11 +97,8 @@ def fetch_prices(start: date, end: date) -> list[dict]:
     return rows
 
 
-def run_vercel(*args: str) -> None:
-    cmd = ROOT / "node_modules" / ".bin" / ("vercel.cmd" if os.name == "nt" else "vercel")
-    if not cmd.exists():
-        raise SystemExit("未找到 vercel CLI，请先在项目目录执行 npm install")
-    subprocess.check_call([str(cmd), *args], cwd=ROOT, env=ENV)
+def run_git(*args: str) -> None:
+    subprocess.check_call(["git", *args], cwd=ROOT, env=ENV)
 
 
 def main() -> None:
@@ -122,11 +118,12 @@ def main() -> None:
     DATA_FILE.write_text(json.dumps(merged, separators=(",", ":")), encoding="utf-8")
     log(f"新增 {len(added)} 个月度数据：{[r['d'] for r in added]}，总计 {len(merged)} 条")
 
-    log("开始本地预构建 ...")
-    run_vercel("build", "--prod")
-    log("开始部署到生产环境 ...")
-    run_vercel("deploy", "--prebuilt", "--prod")
-    log("部署完成，网站已更新。")
+    log("提交新数据并推送到 GitHub ...")
+    run_git("add", "src/qqq_monthly.json")
+    run_git("commit", "-m",
+            f"data: add {len(added)} monthly bar(s) ({added[0]['d']} ~ {added[-1]['d']})")
+    run_git("push")
+    log("已推送，GitHub Actions 将自动构建并部署到 GitHub Pages。")
 
 
 if __name__ == "__main__":
