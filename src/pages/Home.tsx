@@ -34,6 +34,7 @@ export default function Home() {
   const [amountInput, setAmountInput] = useState('')
   const [startMonth, setStartMonth] = useState('')
   const [duration, setDuration] = useState(60)
+  const [tab, setTab] = useState<string>('chart-value')
 
   const asset = ASSETS.find((a) => a.key === assetKey) ?? ASSETS[0]
   const PRICES = asset.data
@@ -250,25 +251,27 @@ export default function Home() {
           </CardContent>
         </Card>
 
-        {/* 导航目录：吸顶锚点跳转 */}
-        <nav className="sticky top-2 z-20 mb-6 flex gap-1 overflow-x-auto rounded-full border border-slate-200 bg-white/90 p-1 shadow-sm backdrop-blur">
-          {[
+        {/* 图表 Tab 切换：点哪个只显示哪个 */}
+        <div className="mb-6 flex gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+          {([
             ['chart-value', '收益曲线'],
             ['chart-return', '累计收益率'],
             ['chart-lumpsum', 'vs 一次性买入'],
             ['chart-startmonths', '全起点对比'],
             ['chart-freq', '频率对比'],
             ['chart-multi', '多标的对比'],
-          ].map(([id, label]) => (
-            <a
+          ] as const).map(([id, label]) => (
+            <button
               key={id}
-              href={`#${id}`}
-              className="whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-blue-50 hover:text-blue-600 sm:text-sm"
+              onClick={() => setTab(id)}
+              className={`flex-1 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-medium transition-colors sm:text-sm ${
+                tab === id ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
+              }`}
             >
               {label}
-            </a>
+            </button>
           ))}
-        </nav>
+        </div>
 
         {/* 指标卡 */}
         <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
@@ -296,7 +299,8 @@ export default function Home() {
         </div>
 
         {/* 收益曲线：定投到最新月份 */}
-        <Card id="chart-value" className="mb-6 scroll-mt-20">
+        {tab === 'chart-value' && (
+        <Card className="mb-6">
           <CardHeader>
             <CardTitle className="text-base">
               {effectiveStartMonth} 起每月定投 {fmt(monthly)} 至今 —— 账户市值 vs 累计投入
@@ -343,9 +347,11 @@ export default function Home() {
             </div>
           </CardContent>
         </Card>
+        )}
 
         {/* 累计收益率曲线：定投到最新月份 */}
-        <Card id="chart-return" className="mb-6 scroll-mt-20">
+        {tab === 'chart-return' && (
+        <Card className="mb-6">
           <CardHeader>
             <CardTitle className="text-base">定投累计收益率变化</CardTitle>
           </CardHeader>
@@ -378,9 +384,11 @@ export default function Home() {
             </div>
           </CardContent>
         </Card>
+        )}
 
         {/* 定投 vs 一次性买入 */}
-        <Card id="chart-lumpsum" className="mb-6 scroll-mt-20">
+        {tab === 'chart-lumpsum' && (
+        <Card className="mb-6">
           <CardHeader>
             <CardTitle className="text-base">
               定投 vs 一次性买入（{effectiveStartMonth} 起）
@@ -460,9 +468,11 @@ export default function Home() {
             </p>
           </CardContent>
         </Card>
+        )}
 
         {/* 全起点对比图（含定投月数控制） */}
-        <Card id="chart-startmonths" className="mb-6 scroll-mt-20">
+        {tab === 'chart-startmonths' && (
+        <Card className="mb-6">
           <CardHeader>
             <CardTitle className="text-base">不同起始月份的定投收益率对比</CardTitle>
           </CardHeader>
@@ -557,9 +567,11 @@ export default function Home() {
             </p>
           </CardContent>
         </Card>
+        )}
 
         {/* 定投频率对比：日 / 周 / 月 */}
-        <Card id="chart-freq" className="mb-6 scroll-mt-20">
+        {tab === 'chart-freq' && (
+        <Card className="mb-6">
           <CardHeader>
             <CardTitle className="text-base">
               定投频率对比：{asset.name}（{asset.code}）每天 / 每周 / 每月（{effectiveStartMonth} 起）
@@ -644,9 +656,11 @@ export default function Home() {
             )}
           </CardContent>
         </Card>
+        )}
 
         {/* 多标的定投收益率对比 */}
-        <Card id="chart-multi" className="mb-6 scroll-mt-20">
+        {tab === 'chart-multi' && (
+        <Card className="mb-6">
           <CardHeader>
             <CardTitle className="text-base">
               多标的定投收益率对比（{effectiveStartMonth} 起）
@@ -716,6 +730,7 @@ export default function Home() {
             </p>
           </CardContent>
         </Card>
+        )}
 
         {/* 参考信息 */}
         <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600">
