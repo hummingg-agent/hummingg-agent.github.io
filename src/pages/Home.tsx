@@ -115,6 +115,7 @@ export default function Home() {
       month: pt.month,
       dca: Math.round(pt.totalReturn * 1000) / 10,
       lump: Math.round((pt.close / base - 1) * 1000) / 10,
+      close: pt.close,
     }))
   }, [series])
   const lumpFinalPct = dcaVsLump.length ? dcaVsLump[dcaVsLump.length - 1].lump : 0
@@ -251,33 +252,16 @@ export default function Home() {
           </CardContent>
         </Card>
 
-        {/* 图表 Tab 切换：点哪个只显示哪个 */}
-        <div className="mb-6 flex gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
-          {([
-            ['chart-value', '收益曲线'],
-            ['chart-return', '累计收益率'],
-            ['chart-lumpsum', 'vs 一次性买入'],
-            ['chart-startmonths', '全起点对比'],
-            ['chart-freq', '频率对比'],
-            ['chart-multi', '多标的对比'],
-          ] as const).map(([id, label]) => (
-            <button
-              key={id}
-              onClick={() => setTab(id)}
-              className={`flex-1 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-medium transition-colors sm:text-sm ${
-                tab === id ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {/* 指标卡 */}
-        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        {/* 指标卡：当前方案的全局结论，与选择哪个图无关 */}
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatCard title="定投期数" value={`${summary.months} 期`} />
           <StatCard title="累计投入" value={fmt(summary.totalInvested)} />
           <StatCard title="期末市值" value={fmt(summary.finalValue)} />
+          <StatCard
+            title="定投平均持仓成本"
+            value={fmt(summary.avgCost, 2)}
+          />
+          <StatCard title="期末收盘价" value={fmt(summary.latestClose, 2)} />
           <StatCard
             title="累计收益率"
             value={fmtPct(summary.totalReturn)}
@@ -298,6 +282,29 @@ export default function Home() {
           />
         </div>
 
+        {/* 图表 Tab 切换：点哪个只显示哪个 */}
+        <div className="mb-6 flex gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+          {([
+            ['chart-value', '收益曲线'],
+            ['chart-return', '累计收益率'],
+            ['chart-lumpsum', 'vs 一次性买入'],
+            ['chart-startmonths', '全起点对比'],
+            ['chart-freq', '频率对比'],
+            ['chart-multi', '多标的对比'],
+            ['chart-cost', '成本 vs 现价'],
+          ] as const).map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={`flex-1 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-medium transition-colors sm:text-sm ${
+                tab === id ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         {/* 收益曲线：定投到最新月份 */}
         {tab === 'chart-value' && (
         <Card className="mb-6">
@@ -311,22 +318,42 @@ export default function Home() {
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={series} margin={{ top: 8, right: 12, bottom: 0, left: 12 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} minTickGap={40} />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fontSize: 12, fill: '#64748b' }}
+                    minTickGap={40}
+                    interval={Math.max(1, Math.round(series.length / 6))}
+                  />
                   <YAxis
+                    yAxisId="amount"
                     tick={{ fontSize: 12, fill: '#64748b' }}
                     tickFormatter={(v: number) => sym + (v >= 1000 ? `${Math.round(v / 100) / 10}k` : v)}
                     width={70}
                   />
+                  <YAxis
+                    yAxisId="price"
+                    orientation="right"
+                    tick={{ fontSize: 12, fill: '#64748b' }}
+                    tickFormatter={(v: number) => sym + (v >= 1000 ? `${Math.round(v / 100) / 10}k` : v)}
+                    width={56}
+                  />
                   <Tooltip
-                    formatter={(value: number, name: string) => [
-                      fmt(value),
-                      name === 'marketValue' ? '账户市值' : '累计投入',
-                    ]}
+                    formatter={(value: number, name: string) =>
+                      name === 'close'
+                        ? [fmt(value, 2), '收盘价']
+                        : [fmt(value), name === 'marketValue' ? '账户市值' : '累计投入']
+                    }
                     labelFormatter={(label: string) => label}
+                  />
+                  <Legend
+                    formatter={(value: string) =>
+                      value === 'marketValue' ? '账户市值' : value === 'invested' ? '累计投入' : '收盘价'
+                    }
                   />
                   <Area
                     type="monotone"
                     dataKey="marketValue"
+                    yAxisId="amount"
                     name="marketValue"
                     stroke="#2563eb"
                     fill="#bfdbfe"
@@ -336,15 +363,29 @@ export default function Home() {
                   <Line
                     type="monotone"
                     dataKey="invested"
+                    yAxisId="amount"
                     name="invested"
-                    stroke="#94a3b8"
+                    stroke="#64748b"
                     strokeDasharray="5 4"
                     strokeWidth={1.5}
+                    dot={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="close"
+                    yAxisId="price"
+                    name="close"
+                    stroke="#94a3b8"
+                    strokeWidth={1.5}
+                    strokeDasharray="4 4"
                     dot={false}
                   />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
+            <p className="mt-2 text-xs text-slate-400">
+              蓝面积为账户市值（左轴），深灰虚线为累计投入（左轴），浅灰虚线为收盘价（右轴）。
+            </p>
           </CardContent>
         </Card>
         )}
@@ -360,28 +401,65 @@ export default function Home() {
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={series} margin={{ top: 8, right: 12, bottom: 0, left: 12 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} minTickGap={40} />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fontSize: 12, fill: '#64748b' }}
+                    minTickGap={40}
+                    interval={Math.max(1, Math.round(series.length / 6))}
+                  />
                   <YAxis
+                    yAxisId="pct"
                     tick={{ fontSize: 12, fill: '#64748b' }}
                     tickFormatter={(v: number) => `${Math.round(v * 100)}%`}
                     width={60}
                   />
+                  <YAxis
+                    yAxisId="price"
+                    orientation="right"
+                    tick={{ fontSize: 12, fill: '#64748b' }}
+                    tickFormatter={(v: number) => sym + (v >= 1000 ? `${Math.round(v / 100) / 10}k` : v)}
+                    width={56}
+                  />
                   <Tooltip
-                    formatter={(value: number) => [fmtPct(value), '累计收益率']}
+                    formatter={(value: number, name: string) =>
+                      name === 'close'
+                        ? [fmt(value, 2), '收盘价']
+                        : [fmtPct(value), '累计收益率']
+                    }
                     labelFormatter={(label: string) => label}
                   />
-                  <ReferenceLine y={0} stroke="#334155" strokeWidth={1} />
+                  <Legend
+                    formatter={(value: string) =>
+                      value === 'totalReturn' ? '定投累计收益率' : '收盘价'
+                    }
+                  />
+                  <ReferenceLine yAxisId="pct" y={0} stroke="#334155" strokeWidth={1} />
                   <Area
                     type="monotone"
                     dataKey="totalReturn"
+                    name="totalReturn"
+                    yAxisId="pct"
                     stroke={up ? '#16a34a' : '#dc2626'}
                     fill={up ? '#bbf7d0' : '#fecaca'}
                     fillOpacity={0.5}
                     strokeWidth={2}
                   />
+                  <Line
+                    type="monotone"
+                    dataKey="close"
+                    yAxisId="price"
+                    name="close"
+                    stroke="#94a3b8"
+                    strokeWidth={1.5}
+                    strokeDasharray="4 4"
+                    dot={false}
+                  />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
+            <p className="mt-2 text-xs text-slate-400">
+              灰虚线为收盘价（右侧刻度），定投累计收益率 = 收盘价 ÷ 平均持仓成本 − 1。
+            </p>
           </CardContent>
         </Card>
         )}
@@ -428,24 +506,43 @@ export default function Home() {
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={dcaVsLump} margin={{ top: 8, right: 12, bottom: 0, left: 12 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} minTickGap={40} />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fontSize: 12, fill: '#64748b' }}
+                    minTickGap={40}
+                    interval={Math.max(1, Math.round(dcaVsLump.length / 6))}
+                  />
                   <YAxis
+                    yAxisId="pct"
                     tick={{ fontSize: 12, fill: '#64748b' }}
                     tickFormatter={(v: number) => `${v}%`}
                     width={60}
                   />
+                  <YAxis
+                    yAxisId="price"
+                    orientation="right"
+                    tick={{ fontSize: 12, fill: '#64748b' }}
+                    tickFormatter={(v: number) => sym + (v >= 1000 ? `${Math.round(v / 100) / 10}k` : v)}
+                    width={56}
+                  />
                   <Tooltip
-                    formatter={(value: number, name: string) => [
-                      `${value}%`,
-                      name === 'dca' ? '每月定投' : '一次性买入',
-                    ]}
+                    formatter={(value: number, name: string) =>
+                      name === 'close'
+                        ? [fmt(value, 2), '收盘价']
+                        : [`${value}%`, name === 'dca' ? '每月定投' : '一次性买入']
+                    }
                     labelFormatter={(label: string) => label}
                   />
-                  <Legend formatter={(value: string) => (value === 'dca' ? '每月定投' : '一次性买入')} />
-                  <ReferenceLine y={0} stroke="#334155" strokeWidth={1} />
+                  <Legend
+                    formatter={(value: string) =>
+                      value === 'dca' ? '每月定投' : value === 'lump' ? '一次性买入' : '收盘价'
+                    }
+                  />
+                  <ReferenceLine yAxisId="pct" y={0} stroke="#334155" strokeWidth={1} />
                   <Line
                     type="monotone"
                     dataKey="dca"
+                    yAxisId="pct"
                     stroke="#2563eb"
                     strokeWidth={2}
                     dot={false}
@@ -453,9 +550,20 @@ export default function Home() {
                   <Line
                     type="monotone"
                     dataKey="lump"
+                    yAxisId="pct"
                     stroke="#f59e0b"
                     strokeWidth={2}
                     strokeDasharray="6 3"
+                    dot={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="close"
+                    yAxisId="price"
+                    name="close"
+                    stroke="#94a3b8"
+                    strokeWidth={1.5}
+                    strokeDasharray="4 4"
                     dot={false}
                   />
                 </LineChart>
@@ -464,7 +572,7 @@ export default function Home() {
             <p className="mt-2 text-xs text-slate-400">
               一次性买入 = 在起始月份一次性投入与定投方案相同的总金额（{fmt(summary.totalInvested)}）。
               注意：一次性买入的资金从第一天起全额占用，而定投资金是分批占用的，
-              定投的资金效率请参考年化收益率（XIRR）。
+              定投的资金效率请参考年化收益率（XIRR）。灰虚线为收盘价（右侧刻度）。
             </p>
           </CardContent>
         </Card>
@@ -529,29 +637,64 @@ export default function Home() {
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={comparison} margin={{ top: 8, right: 12, bottom: 0, left: 12 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} minTickGap={40} />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fontSize: 12, fill: '#64748b' }}
+                    minTickGap={40}
+                    interval={Math.max(1, Math.round(comparison.length / 6))}
+                  />
                   <YAxis
+                    yAxisId="pct"
                     tick={{ fontSize: 12, fill: '#64748b' }}
                     tickFormatter={(v: number) => `${Math.round(v * 100)}%`}
                     width={60}
                   />
+                  <YAxis
+                    yAxisId="price"
+                    orientation="right"
+                    tick={{ fontSize: 12, fill: '#64748b' }}
+                    tickFormatter={(v: number) => sym + (v >= 1000 ? `${Math.round(v / 100) / 10}k` : v)}
+                    width={56}
+                  />
                   <Tooltip
-                    formatter={(value: number) => [fmtPct(value), `定投${duration}期收益率`]}
+                    formatter={(value: number, name: string) =>
+                      name === 'close'
+                        ? [fmt(value, 2), '收盘价']
+                        : [fmtPct(value), `定投${duration}期收益率`]
+                    }
                     labelFormatter={(label: string) => `从 ${label} 开始`}
                   />
-                  <ReferenceLine y={0} stroke="#334155" strokeWidth={1} />
+                  <Legend
+                    formatter={(value: string) =>
+                      value === 'totalReturn' ? `定投${duration}期收益率` : '收盘价'
+                    }
+                  />
+                  <ReferenceLine yAxisId="pct" y={0} stroke="#334155" strokeWidth={1} />
                   <Area
                     type="monotone"
                     dataKey="totalReturn"
+                    name="totalReturn"
+                    yAxisId="pct"
                     stroke="#2563eb"
                     fill="#bfdbfe"
                     fillOpacity={0.5}
                     strokeWidth={2}
                   />
+                  <Line
+                    type="monotone"
+                    dataKey="close"
+                    yAxisId="price"
+                    name="close"
+                    stroke="#94a3b8"
+                    strokeWidth={1.5}
+                    strokeDasharray="4 4"
+                    dot={false}
+                  />
                   {selectedPoint && (
                     <ReferenceDot
                       x={selectedPoint.month}
                       y={selectedPoint.totalReturn}
+                      yAxisId="pct"
                       r={6}
                       fill="#2563eb"
                       stroke="#fff"
@@ -563,7 +706,8 @@ export default function Home() {
             </div>
             <p className="mt-2 text-xs text-slate-400">
               横轴为定投起始月份，纵轴为该起点连续定投 {duration} 期后的累计收益率
-              {selectedPoint ? `；蓝点为当前选中的起始月份 ${effectiveStartMonth}` : ''}。
+              {selectedPoint ? `；蓝点为当前选中的起始月份 ${effectiveStartMonth}` : ''}；
+              灰虚线为各起点当月收盘价（右侧刻度），可对照"价格高位起点 → 收益率低"。
             </p>
           </CardContent>
         </Card>
@@ -619,34 +763,61 @@ export default function Home() {
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={freqSeries} margin={{ top: 8, right: 12, bottom: 0, left: 12 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                      <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} minTickGap={40} />
+                      <XAxis
+                        dataKey="month"
+                        tick={{ fontSize: 12, fill: '#64748b' }}
+                        minTickGap={40}
+                        interval={Math.max(1, Math.round(freqSeries.length / 6))}
+                      />
                       <YAxis
+                        yAxisId="pct"
                         tick={{ fontSize: 12, fill: '#64748b' }}
                         tickFormatter={(v: number) => `${v}%`}
                         width={60}
                       />
+                      <YAxis
+                        yAxisId="price"
+                        orientation="right"
+                        tick={{ fontSize: 12, fill: '#64748b' }}
+                        tickFormatter={(v: number) => sym + (v >= 1000 ? `${Math.round(v / 100) / 10}k` : v)}
+                        width={56}
+                      />
                       <Tooltip
-                        formatter={(value: number, name: string) => [
-                          `${value}%`,
-                          name === 'monthly' ? '每月一次' : name === 'weekly' ? '每周一次' : '每天一次',
-                        ]}
+                        formatter={(value: number, name: string) =>
+                          name === 'close'
+                            ? [fmt(value, 2), '月末收盘价']
+                            : [
+                                `${value}%`,
+                                name === 'monthly' ? '每月一次' : name === 'weekly' ? '每周一次' : '每天一次',
+                              ]
+                        }
                         labelFormatter={(label: string) => label}
                       />
                       <Legend
                         formatter={(value: string) =>
-                          value === 'monthly' ? '每月一次' : value === 'weekly' ? '每周一次' : '每天一次'
+                          value === 'monthly' ? '每月一次' : value === 'weekly' ? '每周一次' : value === 'daily' ? '每天一次' : '收盘价'
                         }
                       />
-                      <ReferenceLine y={0} stroke="#334155" strokeWidth={1} />
-                      <Line type="monotone" dataKey="monthly" stroke="#2563eb" strokeWidth={2} dot={false} />
-                      <Line type="monotone" dataKey="weekly" stroke="#f59e0b" strokeWidth={2} dot={false} />
-                      <Line type="monotone" dataKey="daily" stroke="#16a34a" strokeWidth={2} dot={false} />
+                      <ReferenceLine yAxisId="pct" y={0} stroke="#334155" strokeWidth={1} />
+                      <Line type="monotone" dataKey="monthly" yAxisId="pct" stroke="#2563eb" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="weekly" yAxisId="pct" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="daily" yAxisId="pct" stroke="#16a34a" strokeWidth={2} dot={false} />
+                      <Line
+                        type="monotone"
+                        dataKey="close"
+                        yAxisId="price"
+                        name="close"
+                        stroke="#94a3b8"
+                        strokeWidth={1.5}
+                        strokeDasharray="4 4"
+                        dot={false}
+                      />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
                 <p className="mt-2 text-xs text-slate-400">
                   基于 {asset.name}（{asset.code}）全历史日线数据实测：每月预算相同，每月一次（月末买入）/ 每周一次（周末买入）/ 每天一次（每日买入）。
-                  三条曲线几乎重合——频率对长期收益的影响很小，按你的资金节奏选择即可。切换上方标的可查看其他指数的对比结果。
+                  三条曲线几乎重合——频率对长期收益的影响很小，按你的资金节奏选择即可。灰虚线为月末收盘价（右侧刻度）。切换上方标的可查看其他指数的对比结果。
                 </p>
               </>
             ) : (
@@ -697,7 +868,12 @@ export default function Home() {
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={multiSeries} margin={{ top: 8, right: 12, bottom: 0, left: 12 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} minTickGap={40} />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fontSize: 12, fill: '#64748b' }}
+                    minTickGap={40}
+                    interval={Math.max(1, Math.round(multiSeries.length / 6))}
+                  />
                   <YAxis
                     tick={{ fontSize: 12, fill: '#64748b' }}
                     tickFormatter={(v: number) => `${v}%`}
@@ -732,15 +908,70 @@ export default function Home() {
         </Card>
         )}
 
-        {/* 参考信息 */}
-        <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600">
-          <p>
-            定投平均持仓成本 {fmt(summary.avgCost, 2)}，期末收盘价 {fmt(summary.latestClose, 2)}。
-          </p>
-          <p className="mt-2 text-xs text-slate-400">
-            说明：本工具仅基于历史行情做回测演示，未考虑汇率、手续费与税费，不构成投资建议。历史收益不代表未来表现。
-          </p>
-        </div>
+        {/* 成本 vs 现价：收盘价 + 定投平均持仓成本 */}
+        {tab === 'chart-cost' && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="text-base">
+              收盘价 vs 定投平均持仓成本（{effectiveStartMonth} 起）
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-72 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={series} margin={{ top: 8, right: 12, bottom: 0, left: 12 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fontSize: 12, fill: '#64748b' }}
+                    minTickGap={40}
+                    interval={Math.max(1, Math.round(series.length / 6))}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 12, fill: '#64748b' }}
+                    tickFormatter={(v: number) => sym + (v >= 1000 ? `${Math.round(v / 100) / 10}k` : v)}
+                    width={70}
+                  />
+                  <Tooltip
+                    formatter={(value: number, name: string) => [
+                      fmt(value, 2),
+                      name === 'close' ? '收盘价' : '平均持仓成本',
+                    ]}
+                    labelFormatter={(label: string) => label}
+                  />
+                  <Legend formatter={(value: string) => (value === 'close' ? '收盘价' : '平均持仓成本')} />
+                  <Line
+                    type="monotone"
+                    dataKey="close"
+                    name="close"
+                    stroke="#94a3b8"
+                    strokeWidth={1.5}
+                    strokeDasharray="4 4"
+                    dot={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="avgCost"
+                    name="avgCost"
+                    stroke="#f59e0b"
+                    strokeWidth={2}
+                    strokeDasharray="6 3"
+                    dot={false}
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+            <p className="mt-2 text-xs text-slate-400">
+              平均持仓成本 = 累计投入 ÷ 累计份额，随每次定投动态更新；收盘价低于成本线的区间即为浮亏区间。
+            </p>
+          </CardContent>
+        </Card>
+        )}
+
+        {/* 页脚免责声明 */}
+        <p className="text-center text-xs text-slate-400">
+          说明：本工具仅基于历史行情做回测演示，未考虑汇率、手续费与税费，不构成投资建议。历史收益不代表未来表现。
+        </p>
       </div>
     </div>
   )

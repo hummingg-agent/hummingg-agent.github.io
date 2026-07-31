@@ -11,6 +11,7 @@ export interface DcaPoint {
   marketValue: number
   profit: number
   totalReturn: number // 小数，如 0.15 = 15%
+  avgCost: number // 定投平均持仓成本
 }
 
 export interface DcaSummary {
@@ -46,6 +47,7 @@ export function computeDca(
       marketValue,
       profit: marketValue - invested,
       totalReturn: marketValue / invested - 1,
+      avgCost: invested / shares,
     }
   })
 
@@ -112,6 +114,7 @@ export const fmtPct = (v: number, digits = 1) =>
 export interface StartComparisonPoint {
   month: string // 起始月份 YYYY-MM
   totalReturn: number // 该起点定投 months 期后的累计收益率
+  close: number // 起点当月收盘价
 }
 
 export interface FreqPoint {
@@ -119,6 +122,7 @@ export interface FreqPoint {
   monthly: number // 每月一次累计收益率（%）
   weekly: number // 每周一次累计收益率（%）
   daily: number // 每日一次累计收益率（%）
+  close: number // 该月末收盘价
 }
 
 /** ISO 周 key（用于把交易日分组到周） */
@@ -172,6 +176,7 @@ export function computeFreqComparison(
       monthly: Math.round((shM * last / invested - 1) * 1000) / 10,
       weekly: Math.round((shW * last / invested - 1) * 1000) / 10,
       daily: Math.round((shD * last / invested - 1) * 1000) / 10,
+      close: last,
     })
   }
   return series
@@ -191,6 +196,7 @@ export function computeAllStarts(
     out.push({
       month: prices[i].d.slice(0, 7),
       totalReturn: finalValue / (monthlyAmount * months) - 1,
+      close: prices[i].c,
     })
   }
   return out
