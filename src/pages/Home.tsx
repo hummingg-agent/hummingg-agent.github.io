@@ -6,51 +6,64 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Slider } from '@/components/ui/slider'
-import pricesRaw from '@/qqq_monthly.json'
+import { ASSETS, type Currency } from '@/data/assets'
 import {
   computeDca, computeAllStarts, summarizeComparison,
-  fmtPct, fmtUsd, type PricePoint,
+  fmtPct, fmtMoney,
 } from '@/lib/dca'
 
-const PRICES = pricesRaw as PricePoint[]
-const MONTHLY = 100
-
-const MONTHS = PRICES.map((p) => p.d.slice(0, 7))
-const FIRST_MONTH = MONTHS[0]
-const LAST_START_MONTH = MONTHS[MONTHS.length - 2] // 起点至少要有 2 期
 const DURATION_PRESETS = [12, 24, 36, 60, 120]
 
 function durationLabel(m: number) {
   return m % 12 === 0 ? `${m / 12} 年` : `${m} 个月`
 }
 
+const CURRENCY_SYMBOL: Record<Currency, string> = { USD: '$', CNY: '¥', HKD: 'HK$' }
+
 export default function Home() {
-  const [startMonth, setStartMonth] = useState(MONTHS[Math.max(0, MONTHS.length - 61)])
+  const [assetKey, setAssetKey] = useState(ASSETS[0].key)
+  const [amountInput, setAmountInput] = useState('')
+  const [startMonth, setStartMonth] = useState('')
   const [duration, setDuration] = useState(60)
+
+  const asset = ASSETS.find((a) => a.key === assetKey) ?? ASSETS[0]
+  const PRICES = asset.data
+  const MONTHS = useMemo(() => PRICES.map((p) => p.d.slice(0, 7)), [PRICES])
+  const FIRST_MONTH = MONTHS[0]
+  const LAST_START_MONTH = MONTHS[MONTHS.length - 2] // 起点至少要有 2 期
+
+  const monthly = useMemo(() => {
+    const v = parseFloat(amountInput)
+    return Number.isFinite(v) && v > 0 ? v : asset.defaultAmount
+  }, [amountInput, asset.defaultAmount])
 
   // 起始月份下标（最后一个不可作为起点）
   const startIdx = useMemo(() => {
+    const def = Math.max(0, MONTHS.length - 61)
     const i = MONTHS.indexOf(startMonth)
-    if (i < 0) return MONTHS.length - 61
+    if (i < 0) return def
     return Math.min(Math.max(i, 0), MONTHS.length - 2)
-  }, [startMonth])
+  }, [startMonth, MONTHS])
   const effectiveStartMonth = MONTHS[startIdx]
 
   // 明细：从起始月份一直定投到最新月份
   const { series, summary } = useMemo(
-    () => computeDca(PRICES, startIdx, MONTHLY),
-    [startIdx]
+    () => computeDca(PRICES, startIdx, monthly),
+    [PRICES, startIdx, monthly]
   )
 
   // 对比：不同起始月份定投 duration 期的收益率
   const comparison = useMemo(
-    () => computeAllStarts(PRICES, duration, MONTHLY),
-    [duration]
+    () => computeAllStarts(PRICES, duration, monthly),
+    [PRICES, duration, monthly]
   )
   const compStats = useMemo(() => summarizeComparison(comparison), [comparison])
   const selectedPoint = comparison.find((p) => p.month === effectiveStartMonth)
 
   const up = summary.totalReturn >= 0
+  const cur = asset.currency
+  const sym = CURRENCY_SYMBOL[cur]
+  const fmt = (v: number, digits = 0) => fmtMoney(v, cur, digits)
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -58,17 +71,61 @@ export default function Home() {
         {/* 头部 */}
         <header className="mb-6">
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-            纳斯达克100 定投收益计算器
+            指数基金定投收益计算器
           </h1>
           <p className="mt-2 text-sm text-slate-500">
-            以 QQQ（跟踪纳斯达克100指数的 ETF）前复权月收盘价计算，含分红再投资 ·
-            数据区间 {FIRST_MONTH} ~ {MONTHS[MONTHS.length - 1]} · 数据来源：iFinD
+            {asset.name}（{asset.code}）· {asset.desc} · 前复权月收盘价计算，含分红再投资 ·
+            数据区间 {FIRST_MONTH} ~ {MONTHS[MONTHS.length - 1]} · 数据来源：{asset.source}
           </p>
         </header>
 
-        {/* 控制区：仅起始月份 */}
+        {/* 标的切换 */}
+        <div className="mb-6 flex flex-wrap gap-2">
+          {ASSETS.map((a) => (
+            <button
+              key={a.key}
+              onClick={() => {
+                setAssetKey(a.key)
+                setAmountInput('')
+                setStartMonth('')
+              }}
+              className={`rounded-full border px-4 py-2 text-sm font-medium transition-colors ${
+                assetKey === a.key
+                  ? 'border-blue-600 bg-blue-600 text-white'
+                  : 'border-slate-300 bg-white text-slate-600 hover:border-blue-400 hover:text-blue-600'
+              }`}
+            >
+              {a.name}
+              <span className={`ml-1.5 text-xs ${assetKey === a.key ? 'text-blue-100' : 'text-slate-400'}`}>
+                {a.label}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {/* 控制区：金额 + 起始月份 */}
         <Card className="mb-6">
           <CardContent className="flex flex-col gap-4 pt-6 sm:flex-row sm:items-end">
+            <div className="flex-1">
+              <Label htmlFor="amount" className="mb-2 block text-sm font-medium">
+                每月定投金额（{cur}）
+              </Label>
+              <div className="relative sm:w-56">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">
+                  {sym}
+                </span>
+                <input
+                  id="amount"
+                  type="number"
+                  min={1}
+                  step={cur === 'USD' ? 10 : 100}
+                  placeholder={String(asset.defaultAmount)}
+                  value={amountInput}
+                  onChange={(e) => setAmountInput(e.target.value)}
+                  className="h-10 w-full rounded-md border border-slate-300 bg-white pl-8 pr-3 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                />
+              </div>
+            </div>
             <div className="flex-1">
               <Label htmlFor="start" className="mb-2 block text-sm font-medium">
                 开始定投的月份
@@ -84,7 +141,7 @@ export default function Home() {
               />
             </div>
             <div className="text-sm text-slate-500">
-              每月定投 <span className="text-lg font-semibold text-slate-900">${MONTHLY}</span>
+              每月定投 <span className="text-lg font-semibold text-slate-900">{fmt(monthly)}</span>
               ，月末按当月收盘价买入，一直定投到最新月份
             </div>
           </CardContent>
@@ -93,13 +150,13 @@ export default function Home() {
         {/* 指标卡 */}
         <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <StatCard title="定投期数" value={`${summary.months} 期`} />
-          <StatCard title="累计投入" value={fmtUsd(summary.totalInvested)} />
-          <StatCard title="期末市值" value={fmtUsd(summary.finalValue)} />
+          <StatCard title="累计投入" value={fmt(summary.totalInvested)} />
+          <StatCard title="期末市值" value={fmt(summary.finalValue)} />
           <StatCard
             title="累计收益率"
             value={fmtPct(summary.totalReturn)}
             accent={up ? 'up' : 'down'}
-            sub={fmtUsd(summary.profit)}
+            sub={fmt(summary.profit)}
           />
           <StatCard
             title="年化收益率"
@@ -119,7 +176,7 @@ export default function Home() {
         <Card className="mb-6">
           <CardHeader>
             <CardTitle className="text-base">
-              {effectiveStartMonth} 起每月定投 ${MONTHLY} 至今 —— 账户市值 vs 累计投入
+              {effectiveStartMonth} 起每月定投 {fmt(monthly)} 至今 —— 账户市值 vs 累计投入
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -130,12 +187,12 @@ export default function Home() {
                   <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} minTickGap={40} />
                   <YAxis
                     tick={{ fontSize: 12, fill: '#64748b' }}
-                    tickFormatter={(v: number) => '$' + (v >= 1000 ? `${Math.round(v / 100) / 10}k` : v)}
+                    tickFormatter={(v: number) => sym + (v >= 1000 ? `${Math.round(v / 100) / 10}k` : v)}
                     width={70}
                   />
                   <Tooltip
                     formatter={(value: number, name: string) => [
-                      fmtUsd(value),
+                      fmt(value),
                       name === 'marketValue' ? '账户市值' : '累计投入',
                     ]}
                     labelFormatter={(label: string) => label}
@@ -303,7 +360,7 @@ export default function Home() {
             <span className={summary.lumpSumReturn >= 0 ? 'font-semibold text-green-600' : 'font-semibold text-red-600'}>
               {fmtPct(summary.lumpSumReturn)}
             </span>
-            。定投平均持仓成本 ${summary.avgCost.toFixed(2)}，期末收盘价 ${summary.latestClose.toFixed(2)}。
+            。定投平均持仓成本 {fmt(summary.avgCost, 2)}，期末收盘价 {fmt(summary.latestClose, 2)}。
           </p>
           <p className="mt-2 text-xs text-slate-400">
             说明：本工具仅基于历史行情做回测演示，未考虑汇率、手续费与税费，不构成投资建议。历史收益不代表未来表现。

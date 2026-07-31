@@ -100,8 +100,11 @@ export function computeDca(
   }
 }
 
-export const fmtUsd = (v: number, digits = 0) =>
-  '$' + v.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
+const CURRENCY_PREFIX: Record<string, string> = { USD: '$', CNY: '¥', HKD: 'HK$' }
+
+export const fmtMoney = (v: number, currency: string = 'USD', digits = 0) =>
+  (CURRENCY_PREFIX[currency] ?? currency + ' ') +
+  v.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
 
 export const fmtPct = (v: number, digits = 1) =>
   (v >= 0 ? '+' : '') + (v * 100).toFixed(digits) + '%'
