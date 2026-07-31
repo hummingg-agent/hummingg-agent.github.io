@@ -25,11 +25,17 @@
 
 | 平台 | 地址 | 说明 |
 |------|------|------|
-| Vercel（自有域名） | https://nasdaq.hummingg.com/ | 国内可访问，推荐对外分享 |
+| **主域名（Cloudflare Pages）** | https://dingtouji.com/ （含 www） | 品牌域名，Cloudflare Registrar 注册，SEO canonical |
+| Vercel（自有域名） | https://nasdaq.hummingg.com/ | 国内可访问 |
 | EdgeOne（自有域名） | https://edgeone.hummingg.com/ | 腾讯边缘节点，国内最快 |
 | GitHub Pages | https://hummingg-agent.github.io/ | 用户主页仓库 |
 | Cloudflare Pages | https://hummingg.pages.dev/ | Git 集成自动构建 |
 | Vercel（默认域名） | https://hummingg.vercel.app/ | vercel.app 在国内被屏蔽，海外可访问 |
+
+主域名绑定：Cloudflare DNS 手动 CNAME `dingtouji.com` / `www` → `hummingg.pages.dev`
+（橙云代理，根域名 CNAME 拉平）。Pages 项目域名管理里的验证状态可能长时间显示
+pending，不影响实际访问（代理 CNAME 直接生效，证书由 Cloudflare 边缘自动签发）。
+wrangler OAuth token 无 zone DNS 写权限，DNS 记录改用 Cloudflare MCP 插件创建。
 
 五个地址服务同一份构建产物。
 
