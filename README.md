@@ -39,6 +39,21 @@ wrangler OAuth token 无 zone DNS 写权限，DNS 记录改用 Cloudflare MCP �
 
 五个地址服务同一份构建产物。
 
+### 域名访问实测（2026-07-31 22:40，国内直连）
+
+| 域名 | 结果 | 说明 |
+|------|------|------|
+| https://dingtouji.com/ 与 https://www.dingtouji.com/ | ✅ 200 | 主域名，国内直连稳定，内容已是最新构建 |
+| https://edgeone.hummingg.com/ | ✅ 200 | EdgeOne 自定义域名，国内直连稳定 |
+| https://nasdaq.hummingg.com/ | ✅ 200 | Vercel 自有域名，国内可访问 |
+| https://hummingg-agent.github.io/ | ✅ 200 | GitHub Pages，内容已是最新构建 |
+| https://hummingg.pages.dev/ | ✅ 200 | Cloudflare Pages 默认域名 |
+| https://hummingg.vercel.app/ | ❌ 直连超时 | vercel.app 在国内被屏蔽，挂代理可访问 |
+| https://hummingg.edgeone.dev/ | ❌ 401 | 预期行为：EdgeOne 默认域名在大陆一律 401（平台合规规则），须用自定义域名 |
+| https://nasdaq-dca.pages.dev/ | ❌ 直连超时 | 项目改名前的旧默认域名，以 hummingg.pages.dev 为准 |
+
+日常分享推荐：dingtouji.com 或 edgeone.hummingg.com（国内直连最稳）。
+
 ## 架构
 
 ```
