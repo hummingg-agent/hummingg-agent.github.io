@@ -324,6 +324,41 @@ export default function Home() {
           </CardContent>
         </Card>
 
+        {/* 累计收益率曲线：定投到最新月份 */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="text-base">定投累计收益率变化</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-56 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={series} margin={{ top: 8, right: 12, bottom: 0, left: 12 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} minTickGap={40} />
+                  <YAxis
+                    tick={{ fontSize: 12, fill: '#64748b' }}
+                    tickFormatter={(v: number) => `${Math.round(v * 100)}%`}
+                    width={60}
+                  />
+                  <Tooltip
+                    formatter={(value: number) => [fmtPct(value), '累计收益率']}
+                    labelFormatter={(label: string) => label}
+                  />
+                  <ReferenceLine y={0} stroke="#334155" strokeWidth={1} />
+                  <Area
+                    type="monotone"
+                    dataKey="totalReturn"
+                    stroke={up ? '#16a34a' : '#dc2626'}
+                    fill={up ? '#bbf7d0' : '#fecaca'}
+                    fillOpacity={0.5}
+                    strokeWidth={2}
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* 定投 vs 一次性买入 */}
         <Card className="mb-6">
           <CardHeader>
@@ -490,41 +525,6 @@ export default function Home() {
                 正在加载日线数据…
               </div>
             )}
-          </CardContent>
-        </Card>
-
-        {/* 累计收益率曲线：定投到最新月份 */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="text-base">定投累计收益率变化</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-56 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={series} margin={{ top: 8, right: 12, bottom: 0, left: 12 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} minTickGap={40} />
-                  <YAxis
-                    tick={{ fontSize: 12, fill: '#64748b' }}
-                    tickFormatter={(v: number) => `${Math.round(v * 100)}%`}
-                    width={60}
-                  />
-                  <Tooltip
-                    formatter={(value: number) => [fmtPct(value), '累计收益率']}
-                    labelFormatter={(label: string) => label}
-                  />
-                  <ReferenceLine y={0} stroke="#334155" strokeWidth={1} />
-                  <Area
-                    type="monotone"
-                    dataKey="totalReturn"
-                    stroke={up ? '#16a34a' : '#dc2626'}
-                    fill={up ? '#bbf7d0' : '#fecaca'}
-                    fillOpacity={0.5}
-                    strokeWidth={2}
-                  />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
           </CardContent>
         </Card>
 
