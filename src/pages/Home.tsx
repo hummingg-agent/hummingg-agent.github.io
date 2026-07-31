@@ -720,11 +720,7 @@ export default function Home() {
         {/* 参考信息 */}
         <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600">
           <p>
-            参考：同期若在 {effectiveStartMonth} 一次性投入，持有至今收益率为{' '}
-            <span className={summary.lumpSumReturn >= 0 ? 'font-semibold text-green-600' : 'font-semibold text-red-600'}>
-              {fmtPct(summary.lumpSumReturn)}
-            </span>
-            。定投平均持仓成本 {fmt(summary.avgCost, 2)}，期末收盘价 {fmt(summary.latestClose, 2)}。
+            定投平均持仓成本 {fmt(summary.avgCost, 2)}，期末收盘价 {fmt(summary.latestClose, 2)}。
           </p>
           <p className="mt-2 text-xs text-slate-400">
             说明：本工具仅基于历史行情做回测演示，未考虑汇率、手续费与税费，不构成投资建议。历史收益不代表未来表现。
