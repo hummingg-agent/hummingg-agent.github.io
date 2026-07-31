@@ -4,7 +4,7 @@
 一次性历史数据抓取脚本：为每个资产生成 src/data/<key>.json
 
 资产注册表（key → 数据源/代码）：
-  qqq    QQQ.O        纳斯达克100 ETF   iFinD（复用现有 src/qqq_monthly.json）
+  qqq    QQQ.O        纳斯达克100 ETF   existing（复用现有 src/data/qqq.json）
   spx    SPX.GI       标普500指数       Wind index_data（5 年窗口分块）
   hs300  000300.SH    沪深300指数       iFinD（3 年窗口分块）
   zz500  000905.SH    中证500指数       iFinD（3 年窗口分块）
@@ -19,6 +19,7 @@
 import csv
 import io
 import json
+import os
 import re
 import subprocess
 import sys
@@ -33,22 +34,35 @@ IFIND_TOOL = Path.home() / (
     "Library/Application Support/kimi-desktop/daimon-share/daimon/runtime/"
     "kimi-code/home/plugins/managed/ifind/scripts/ifind_tool.py"
 )
+IFIND_TOOL_WIN = Path(os.environ.get("APPDATA", "")) / (
+    "kimi-desktop/daimon-share/daimon/runtime/kimi-code/home/plugins/managed/ifind/scripts/ifind_tool.py"
+)
 WIND_CLI = Path.home() / (
     "Library/Application Support/kimi-desktop/daimon-share/daimon/runtime/"
     "kimi-code/home/plugins/managed/wind-allskill/skills/wind-mcp-skill/scripts/cli.mjs"
 )
 
 ASSETS = {
-    "qqq": {"source": "existing", "name": "纳斯达克100 ETF (QQQ)"},
+    "qqq": {"source": "ifind", "code": "QQQ.O", "name": "纳斯达克100 ETF (QQQ)", "begin": "1999-03-10"},
     "spx": {"source": "wind_index", "code": "SPX.GI", "name": "标普500指数", "begin": "1990-01-01"},
     "hs300": {"source": "ifind", "code": "000300.SH", "name": "沪深300指数", "begin": "2002-01-04"},
     "zz500": {"source": "ifind", "code": "000905.SH", "name": "中证500指数", "begin": "2004-12-31"},
     "hsi": {"source": "wind_index", "code": "HSI.HI", "name": "恒生指数", "begin": "1990-01-01"},
 }
 
+# 月线：分块边界按月去重、过滤当月未完结 K 线；日线：按日去重、不过滤
+DAILY = "--daily" in sys.argv
+
 
 def log(msg: str) -> None:
     print(f"[fetch_history] {msg}", flush=True)
+
+
+def find_ifind_tool() -> Path:
+    for p in (IFIND_TOOL, IFIND_TOOL_WIN):
+        if p.exists():
+            return p
+    raise SystemExit(f"未找到 iFinD 插件脚本，尝试过：{[str(p) for p in (IFIND_TOOL, IFIND_TOOL_WIN)]}")
 
 
 def current_ym() -> str:
@@ -57,12 +71,23 @@ def current_ym() -> str:
 
 def write_json(key: str, rows: list[dict]) -> None:
     DATA_DIR.mkdir(exist_ok=True)
-    rows = [r for r in rows if r["d"][:7] != current_ym()]
     rows.sort(key=lambda r: r["d"])
-    # 去重（保留最后出现的）
-    dedup = {r["d"]: r for r in rows}
-    rows = [dedup[d] for d in sorted(dedup)]
-    out = DATA_DIR / f"{key}.json"
+    if DAILY:
+        # 日线：按日去重（保留最后一条），输出 <key>_daily.json
+        dedup = {r["d"]: r for r in rows}
+        rows = [dedup[d] for d in sorted(dedup)]
+        out = DATA_DIR / f"{key}_daily.json"
+    else:
+        rows = [r for r in rows if r["d"][:7] != current_ym()]
+        # 按月去重：分块边界月的 K 线会被相邻两块各返回一次且日期标注不同，
+        # 同月保留日期最晚的一条（真正的月末 K 线）
+        by_month: dict[str, dict] = {}
+        for r in rows:
+            m = r["d"][:7]
+            if m not in by_month or r["d"] > by_month[m]["d"]:
+                by_month[m] = r
+        rows = [by_month[m] for m in sorted(by_month)]
+        out = DATA_DIR / f"{key}.json"
     out.write_text(json.dumps(rows, separators=(",", ":")), encoding="utf-8")
     log(f"{key}: {len(rows)} 条 {rows[0]['d']} ~ {rows[-1]['d']} -> {out.relative_to(ROOT)}")
 
@@ -78,7 +103,7 @@ def parse_wind_csv_text(text: str) -> list[dict]:
 
 
 def fetch_wind_chunked(server: str, tool: str, code: str, begin: date, end: date) -> list[dict]:
-    """Wind K 线单次约百条上限，按 5 年窗口分块"""
+    """Wind K 线按 5 年窗口分块（index 通道日线 5 年约 1260 条不截断）"""
     rows: list[dict] = []
     chunk_start = begin
     while chunk_start <= end:
@@ -87,7 +112,7 @@ def fetch_wind_chunked(server: str, tool: str, code: str, begin: date, end: date
             "windcode": code,
             "begin_date": chunk_start.strftime("%Y%m%d"),
             "end_date": chunk_end.strftime("%Y%m%d"),
-            "period": "12",
+            "period": "10" if DAILY else "12",
         }
         csv_path = None
         for attempt in range(3):
@@ -96,7 +121,7 @@ def fetch_wind_chunked(server: str, tool: str, code: str, begin: date, end: date
                 capture_output=True, text=True, timeout=600,
             )
             out = r.stdout + r.stderr
-            m = re.search(r"saved to (/\S+?\.csv)", out)
+            m = re.search(r"saved to (\S+?\.csv)", out)
             if m and Path(m.group(1)).exists():
                 csv_path = Path(m.group(1))
                 break
@@ -125,6 +150,7 @@ def parse_ifind_csv(path: Path) -> list[dict]:
 
 def fetch_ifind_chunked(code: str, begin: date, end: date) -> list[dict]:
     """iFinD 单次最多 3 年，分块拉取"""
+    ifind = find_ifind_tool()
     TMP_DIR.mkdir(exist_ok=True)
     rows: list[dict] = []
     chunk_start = begin
@@ -137,13 +163,13 @@ def fetch_ifind_chunked(code: str, begin: date, end: date) -> list[dict]:
             "ticker": code,
             "start_date": chunk_start.isoformat(),
             "end_date": chunk_end.isoformat(),
-            "interval": "M",
+            "interval": "D" if DAILY else "M",
             "adjust": "forward",
             "file_path": str(csv_path).replace("\\", "/"),
         }
         for attempt in range(3):
             r = subprocess.run(
-                [sys.executable, str(IFIND_TOOL), "call",
+                [sys.executable, str(ifind), "call",
                  "--api-name", "ifind_get_price",
                  "--params-json", json.dumps(params)],
                 capture_output=True, text=True, timeout=300,
@@ -161,14 +187,12 @@ def fetch_ifind_chunked(code: str, begin: date, end: date) -> list[dict]:
 
 def main() -> None:
     today = date.today()
-    only = set(sys.argv[1:])  # 可指定只抓某些 key，如：python3 scripts/fetch_history.py hs300
+    only = {a for a in sys.argv[1:] if not a.startswith("--")}  # 可指定只抓某些 key
     for key, meta in ASSETS.items():
         if only and key not in only:
             continue
-        log(f"=== {key} {meta['name']} ===")
-        if meta["source"] == "existing":
-            rows = json.loads((ROOT / "src" / "qqq_monthly.json").read_text(encoding="utf-8"))
-        elif meta["source"] == "ifind":
+        log(f"=== {key} {meta['name']}（{'日线' if DAILY else '月线'}）===")
+        if meta["source"] == "ifind":
             begin = datetime.strptime(meta["begin"], "%Y-%m-%d").date()
             rows = fetch_ifind_chunked(meta["code"], begin, today)
         elif meta["source"] == "wind_fund":

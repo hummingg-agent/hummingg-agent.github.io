@@ -8,11 +8,13 @@
 
 流程：
   1. 遍历资产注册表（src/data/<key>.json），读取各自最后一个日期
-  2. 按数据源增量拉取该日期前 45 天 ~ 今天的月度前复权行情：
+  2. 按数据源增量拉取该日期前 120 天 ~ 今天的月度前复权行情：
        - iFinD（ifind_get_price，单次 ≤3 年）：QQQ.O / 000300.SH / 000905.SH
        - Wind index_data（get_index_kline，月 K）：SPX.GI / HSI.HI
   3. 只保留「已完结月份」的数据（过滤当月未完结的 K 线），去重后追加合并
-  4. 任一标的有新数据 → git commit & push → 各平台云端自动构建部署：
+  4. 同步增量维护 src/data/<key>_daily.json 日线文件（定投频率对比图用），
+     回看 10 天、按日去重追加（日线保留当月未完结数据，随交易日滚动）
+  5. 任一标的月线或日线有新数据 → git commit & push → 各平台云端自动构建部署：
        - GitHub Actions → GitHub Pages
        - Cloudflare Workers Builds / Pages（Git 集成）
        - Vercel（Git 集成）
@@ -86,18 +88,18 @@ def ensure_agent_gw() -> None:
         subprocess.check_call([sys.executable, "-m", "pip", "install", url])
 
 
-def fetch_ifind(code: str, start: date, end: date) -> list[dict]:
+def fetch_ifind(code: str, start: date, end: date, interval: str = "M") -> list[dict]:
     ifind = find_ifind_tool()
     ensure_agent_gw()
     TMP_DIR.mkdir(exist_ok=True)
-    csv_path = TMP_DIR / f"ifind_{code.replace('.', '_')}.csv"
+    csv_path = TMP_DIR / f"ifind_{code.replace('.', '_')}_{interval}.csv"
     if csv_path.exists():
         csv_path.unlink()
     params = {
         "ticker": code,
         "start_date": start.isoformat(),
         "end_date": end.isoformat(),
-        "interval": "M",
+        "interval": interval,
         "adjust": "forward",
         "file_path": str(csv_path).replace("\\", "/"),
     }
@@ -122,16 +124,17 @@ def fetch_ifind(code: str, start: date, end: date) -> list[dict]:
         if not cols.get("time") or not cols.get("close"):
             continue
         rows.append({"d": cols["time"][:10], "c": round(float(cols["close"]), 4)})
-    log(f"  iFinD {code} 返回 {len(rows)} 条月度数据（{start} ~ {end}）")
+    label = "月度" if interval == "M" else "日线"
+    log(f"  iFinD {code} 返回 {len(rows)} 条{label}数据（{start} ~ {end}）")
     return rows
 
 
-def fetch_wind_index(code: str, start: date, end: date) -> list[dict]:
+def fetch_wind_index(code: str, start: date, end: date, period: str = "12") -> list[dict]:
     params = {
         "windcode": code,
         "begin_date": start.strftime("%Y%m%d"),
         "end_date": end.strftime("%Y%m%d"),
-        "period": "12",
+        "period": period,
     }
     csv_path = None
     out = ""
@@ -141,7 +144,7 @@ def fetch_wind_index(code: str, start: date, end: date) -> list[dict]:
             capture_output=True, text=True, timeout=600,
         )
         out = r.stdout + r.stderr
-        m = re.search(r"saved to (/\S+?\.csv)", out)
+        m = re.search(r"saved to (\S+?\.csv)", out)
         if m and Path(m.group(1)).exists():
             csv_path = Path(m.group(1))
             break
@@ -154,8 +157,22 @@ def fetch_wind_index(code: str, start: date, end: date) -> list[dict]:
         if not rec.get("trade_date") or not rec.get("close"):
             continue
         rows.append({"d": rec["trade_date"][:10], "c": round(float(rec["close"]), 4)})
-    log(f"  Wind {code} 返回 {len(rows)} 条月度数据（{start} ~ {end}）")
+    label = "月度" if period == "12" else "日线"
+    log(f"  Wind {code} 返回 {len(rows)} 条{label}数据（{start} ~ {end}）")
     return rows
+
+
+def month_gaps(rows: list[dict]) -> list[str]:
+    """返回首尾之间缺失的月份（YYYY-MM 列表）"""
+    have = {r["d"][:7] for r in rows}
+    y, m = int(rows[0]["d"][:4]), int(rows[0]["d"][5:7])
+    end = rows[-1]["d"][:7]
+    gaps = []
+    while f"{y:04d}-{m:02d}" < end:
+        if f"{y:04d}-{m:02d}" not in have:
+            gaps.append(f"{y:04d}-{m:02d}")
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return gaps
 
 
 def run_git(*args: str) -> None:
@@ -185,21 +202,49 @@ def main() -> None:
         last = datetime.strptime(data[-1]["d"], "%Y-%m-%d").date()
         log(f"{key}（{meta['code']}）：现有 {len(data)} 条，最新 {last}")
 
+        # 回看 120 天：定时任务偶尔漏跑一两个月也能补回，不会留下空洞
         if meta["source"] == "ifind":
-            new_rows = fetch_ifind(meta["code"], last - timedelta(days=45), today)
+            new_rows = fetch_ifind(meta["code"], last - timedelta(days=120), today)
         else:
-            new_rows = fetch_wind_index(meta["code"], last - timedelta(days=45), today)
+            new_rows = fetch_wind_index(meta["code"], last - timedelta(days=120), today)
 
         new_rows = [r for r in new_rows if r["d"][:7] != current_ym]
-        existing = {r["d"] for r in data}
-        added = [r for r in new_rows if r["d"] not in existing]
-        if not added:
-            log(f"  {key} 无新数据")
+        # 按月去重：数据源对同一月份可能返回不同日期标注，同月保留最后一条
+        by_month = {r["d"][:7]: r for r in new_rows}
+        existing = {r["d"][:7] for r in data}
+        added = [r for m, r in sorted(by_month.items()) if m not in existing]
+        if added:
+            merged = sorted(data + added, key=lambda r: r["d"])
+            gaps = month_gaps(merged)
+            if gaps:
+                log(f"  ⚠️ {key} 存在缺失月份：{gaps}，请用 fetch_history.py 回灌")
+            data_file.write_text(json.dumps(merged, separators=(",", ":")), encoding="utf-8")
+            all_added.setdefault(key, []).extend(r["d"] for r in added)
+            log(f"  {key} 月线新增 {len(added)} 条：{[r['d'] for r in added]}，总计 {len(merged)} 条")
+        else:
+            log(f"  {key} 月线无新数据")
+
+        # --- 日线增量维护（供首页「定投频率对比图」使用）---
+        daily_file = DATA_DIR / f"{key}_daily.json"
+        if not daily_file.exists():
             continue
-        merged = sorted(data + added, key=lambda r: r["d"])
-        data_file.write_text(json.dumps(merged, separators=(",", ":")), encoding="utf-8")
-        all_added[key] = [r["d"] for r in added]
-        log(f"  {key} 新增 {len(added)} 条：{[r['d'] for r in added]}，总计 {len(merged)} 条")
+        daily = json.loads(daily_file.read_text(encoding="utf-8"))
+        dlast = datetime.strptime(daily[-1]["d"], "%Y-%m-%d").date()
+        # 回看 10 天即可：日线每月跑一次，重叠部分按日去重
+        if meta["source"] == "ifind":
+            new_daily = fetch_ifind(meta["code"], dlast - timedelta(days=10), today, interval="D")
+        else:
+            new_daily = fetch_wind_index(meta["code"], dlast - timedelta(days=10), today, period="10")
+        by_day = {r["d"]: r for r in new_daily}
+        existing_d = {r["d"] for r in daily}
+        dadded = [r for d, r in sorted(by_day.items()) if d not in existing_d]
+        if not dadded:
+            log(f"  {key} 日线无新数据")
+            continue
+        dmerged = sorted(daily + dadded, key=lambda r: r["d"])
+        daily_file.write_text(json.dumps(dmerged, separators=(",", ":")), encoding="utf-8")
+        all_added.setdefault(key, []).append(f"daily+{len(dadded)}")
+        log(f"  {key} 日线新增 {len(dadded)} 条，最新 {dmerged[-1]['d']}，总计 {len(dmerged)} 条")
 
     if not all_added:
         log("所有标的均无新数据，本次不部署。结束。")
@@ -208,7 +253,7 @@ def main() -> None:
     log("提交新数据并推送到 GitHub ...")
     run_git("add", "src/data")
     summary = ", ".join(f"{k}+{len(v)}" for k, v in all_added.items())
-    run_git("commit", "-m", f"data: monthly update ({summary})")
+    run_git("commit", "-m", f"data: update ({summary})")
     if git_push():
         log("已推送。GitHub Pages / Cloudflare / Vercel / EdgeOne 将自动构建部署。")
     else:

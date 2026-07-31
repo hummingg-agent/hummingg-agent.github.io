@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ComposedChart, Area, Line, LineChart, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, ReferenceDot, Legend,
@@ -6,10 +6,10 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Slider } from '@/components/ui/slider'
-import { ASSETS, type Currency } from '@/data/assets'
+import { ASSETS, loadDaily, type Currency } from '@/data/assets'
 import {
-  computeDca, computeAllStarts, summarizeComparison,
-  fmtPct, fmtMoney,
+  computeDca, computeAllStarts, computeFreqComparison, summarizeComparison,
+  fmtPct, fmtMoney, type PricePoint,
 } from '@/lib/dca'
 import { downloadShareImage } from '@/lib/share'
 
@@ -73,6 +73,38 @@ export default function Home() {
   const cur = asset.currency
   const sym = CURRENCY_SYMBOL[cur]
   const fmt = (v: number, digits = 0) => fmtMoney(v, cur, digits)
+
+  // 日线数据（按需加载，用于频率对比）
+  const dailyCache = useRef<Record<string, PricePoint[]>>({})
+  const [dailyData, setDailyData] = useState<PricePoint[] | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    const cached = dailyCache.current[assetKey]
+    if (cached) {
+      setDailyData(cached)
+      return
+    }
+    setDailyData(null)
+    loadDaily(assetKey).then((d) => {
+      if (cancelled) return
+      dailyCache.current[assetKey] = d
+      setDailyData(d)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [assetKey])
+
+  // 定投频率对比：日 / 周 / 月（同月预算）
+  const freqSeries = useMemo(
+    () => (dailyData ? computeFreqComparison(dailyData, effectiveStartMonth) : []),
+    [dailyData, effectiveStartMonth]
+  )
+  const freqLast = freqSeries.length ? freqSeries[freqSeries.length - 1] : null
+  const freqSpread = freqLast
+    ? Math.max(freqLast.monthly, freqLast.weekly, freqLast.daily) -
+      Math.min(freqLast.monthly, freqLast.weekly, freqLast.daily)
+    : 0
 
   // 定投 vs 一次性买入：同一起点，两条累计收益率曲线（%）
   const dcaVsLump = useMemo(() => {
@@ -371,6 +403,93 @@ export default function Home() {
               注意：一次性买入的资金从第一天起全额占用，而定投资金是分批占用的，
               定投的资金效率请参考年化收益率（XIRR）。
             </p>
+          </CardContent>
+        </Card>
+
+        {/* 定投频率对比：日 / 周 / 月 */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="text-base">
+              定投频率对比：每天 / 每周 / 每月（{effectiveStartMonth} 起）
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {freqLast ? (
+              <>
+                <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                      <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: '#2563eb' }} />
+                      每月一次
+                    </div>
+                    <div className={`mt-0.5 text-base font-bold ${freqLast.monthly >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {freqLast.monthly >= 0 ? '+' : ''}{freqLast.monthly}%
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                      <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: '#f59e0b' }} />
+                      每周一次
+                    </div>
+                    <div className={`mt-0.5 text-base font-bold ${freqLast.weekly >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {freqLast.weekly >= 0 ? '+' : ''}{freqLast.weekly}%
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                      <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: '#16a34a' }} />
+                      每天一次
+                    </div>
+                    <div className={`mt-0.5 text-base font-bold ${freqLast.daily >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {freqLast.daily >= 0 ? '+' : ''}{freqLast.daily}%
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="text-xs text-slate-500">三种频率最大差异</div>
+                    <div className="mt-0.5 text-base font-bold text-slate-900">
+                      {freqSpread.toFixed(1)} 个百分点
+                    </div>
+                  </div>
+                </div>
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={freqSeries} margin={{ top: 8, right: 12, bottom: 0, left: 12 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                      <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} minTickGap={40} />
+                      <YAxis
+                        tick={{ fontSize: 12, fill: '#64748b' }}
+                        tickFormatter={(v: number) => `${v}%`}
+                        width={60}
+                      />
+                      <Tooltip
+                        formatter={(value: number, name: string) => [
+                          `${value}%`,
+                          name === 'monthly' ? '每月一次' : name === 'weekly' ? '每周一次' : '每天一次',
+                        ]}
+                        labelFormatter={(label: string) => label}
+                      />
+                      <Legend
+                        formatter={(value: string) =>
+                          value === 'monthly' ? '每月一次' : value === 'weekly' ? '每周一次' : '每天一次'
+                        }
+                      />
+                      <ReferenceLine y={0} stroke="#334155" strokeWidth={1} />
+                      <Line type="monotone" dataKey="monthly" stroke="#2563eb" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="weekly" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="daily" stroke="#16a34a" strokeWidth={2} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+                <p className="mt-2 text-xs text-slate-400">
+                  基于日线数据实测：每月预算相同，每月一次（月末买入）/ 每周一次（周末买入）/ 每天一次（每日买入）。
+                  三条曲线几乎重合——频率对长期收益的影响很小，按你的资金节奏选择即可。
+                </p>
+              </>
+            ) : (
+              <div className="flex h-64 items-center justify-center text-sm text-slate-400">
+                正在加载日线数据…
+              </div>
+            )}
           </CardContent>
         </Card>
 

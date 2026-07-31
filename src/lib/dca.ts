@@ -109,20 +109,72 @@ export const fmtMoney = (v: number, currency: string = 'USD', digits = 0) =>
 export const fmtPct = (v: number, digits = 1) =>
   (v >= 0 ? '+' : '') + (v * 100).toFixed(digits) + '%'
 
-/** 指定起始下标 + 定投月数的单方案计算（复用 computeDca，截取窗口） */
-export function computeDcaWindow(
-  prices: PricePoint[],
-  startIndex: number,
-  months: number,
-  monthlyAmount: number
-) {
-  const window = prices.slice(startIndex, startIndex + months)
-  return computeDca(window, 0, monthlyAmount)
-}
-
 export interface StartComparisonPoint {
   month: string // 起始月份 YYYY-MM
   totalReturn: number // 该起点定投 months 期后的累计收益率
+}
+
+export interface FreqPoint {
+  month: string // YYYY-MM
+  monthly: number // 每月一次累计收益率（%）
+  weekly: number // 每周一次累计收益率（%）
+  daily: number // 每日一次累计收益率（%）
+}
+
+/** ISO 周 key（用于把交易日分组到周） */
+function isoWeekKey(isoDate: string): string {
+  const d = new Date(isoDate + 'T00:00:00Z')
+  const day = d.getUTCDay() || 7
+  const thu = new Date(d)
+  thu.setUTCDate(d.getUTCDate() + (4 - day))
+  const yearStart = new Date(Date.UTC(thu.getUTCFullYear(), 0, 1))
+  const weekNo = Math.ceil(((thu.getTime() - yearStart.getTime()) / 86400000 + 1) / 7)
+  return `${thu.getUTCFullYear()}-W${weekNo}`
+}
+
+/**
+ * 定投频率对比：同一月预算下，每月一次（月末）/ 每周一次（周末）/ 每日一次
+ * 的累计收益率曲线。需要日线数据。
+ */
+export function computeFreqComparison(
+  dailyPrices: PricePoint[],
+  startMonth: string,
+  budget = 1000
+): FreqPoint[] {
+  const byMonth = new Map<string, PricePoint[]>()
+  for (const p of dailyPrices) {
+    const m = p.d.slice(0, 7)
+    if (m < startMonth) continue
+    const arr = byMonth.get(m) ?? []
+    arr.push(p)
+    byMonth.set(m, arr)
+  }
+  let shM = 0
+  let shW = 0
+  let shD = 0
+  let invested = 0
+  const series: FreqPoint[] = []
+  const sortedMonths = [...byMonth.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  for (const [m, arr] of sortedMonths) {
+    // 每月一次：月末最后一个交易日买入
+    shM += budget / arr[arr.length - 1].c
+    // 每周一次：预算平摊到每个 ISO 周，周末最后交易日买入
+    const weeks = new Map<string, PricePoint>()
+    for (const p of arr) weeks.set(isoWeekKey(p.d), p) // 后写入覆盖 → 每周最后一天
+    const weekDays = [...weeks.values()]
+    for (const p of weekDays) shW += budget / weekDays.length / p.c
+    // 每日一次：预算平摊到每个交易日
+    for (const p of arr) shD += budget / arr.length / p.c
+    invested += budget
+    const last = arr[arr.length - 1].c
+    series.push({
+      month: m,
+      monthly: Math.round((shM * last / invested - 1) * 1000) / 10,
+      weekly: Math.round((shW * last / invested - 1) * 1000) / 10,
+      daily: Math.round((shD * last / invested - 1) * 1000) / 10,
+    })
+  }
+  return series
 }
 
 /** 对比：每个可能的起始月份，定投 months 期后的最终收益率 */

@@ -5,6 +5,16 @@ import zz500 from './zz500.json'
 import hsi from './hsi.json'
 import type { PricePoint } from '@/lib/dca'
 
+const dailyLoaders = import.meta.glob<{ default: PricePoint[] }>('./*_daily.json')
+
+/** 按需加载某标的的全历史日线（不在主 bundle 中） */
+export async function loadDaily(key: string): Promise<PricePoint[]> {
+  const loader = dailyLoaders[`./${key}_daily.json`]
+  if (!loader) return []
+  const mod = await loader()
+  return mod.default
+}
+
 export type Currency = 'USD' | 'CNY' | 'HKD'
 
 export interface AssetMeta {
