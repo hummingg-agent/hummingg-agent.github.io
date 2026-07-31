@@ -73,6 +73,20 @@ export default function Home() {
   const sym = CURRENCY_SYMBOL[cur]
   const fmt = (v: number, digits = 0) => fmtMoney(v, cur, digits)
 
+  // 定投 vs 一次性买入：同一起点，两条累计收益率曲线（%）
+  const dcaVsLump = useMemo(() => {
+    const base = series[0]?.close
+    if (!base) return []
+    return series.map((pt) => ({
+      month: pt.month,
+      dca: Math.round(pt.totalReturn * 1000) / 10,
+      lump: Math.round((pt.close / base - 1) * 1000) / 10,
+    }))
+  }, [series])
+  const lumpFinalPct = dcaVsLump.length ? dcaVsLump[dcaVsLump.length - 1].lump : 0
+  const dcaFinalPct = dcaVsLump.length ? dcaVsLump[dcaVsLump.length - 1].dca : 0
+  const dcaWins = dcaFinalPct >= lumpFinalPct
+
   // 多标的对比：同一起点，各标的定投累计收益率（%）
   const multiSeries = useMemo(() => {
     const byMonth = new Map<string, Record<string, number | string>>()
@@ -254,6 +268,88 @@ export default function Home() {
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* 定投 vs 一次性买入 */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="text-base">
+              定投 vs 一次性买入（{effectiveStartMonth} 起）
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                  <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: '#2563eb' }} />
+                  每月定投 {fmt(monthly)}
+                </div>
+                <div className={`mt-0.5 text-base font-bold ${dcaFinalPct >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {dcaFinalPct >= 0 ? '+' : ''}{dcaFinalPct}%
+                </div>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                  <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: '#f59e0b' }} />
+                  期初一次性买入 {fmt(summary.totalInvested)}
+                </div>
+                <div className={`mt-0.5 text-base font-bold ${lumpFinalPct >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {lumpFinalPct >= 0 ? '+' : ''}{lumpFinalPct}%
+                </div>
+              </div>
+              <div className="col-span-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 sm:col-span-1">
+                <div className="text-xs text-slate-500">结论</div>
+                <div className="mt-0.5 text-base font-bold text-slate-900">
+                  {dcaWins ? '定投跑赢' : '一次性买入跑赢'}{' '}
+                  <span className="text-sm font-semibold text-slate-500">
+                    {Math.abs(dcaFinalPct - lumpFinalPct).toFixed(1)} 个百分点
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="h-72 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={dcaVsLump} margin={{ top: 8, right: 12, bottom: 0, left: 12 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} minTickGap={40} />
+                  <YAxis
+                    tick={{ fontSize: 12, fill: '#64748b' }}
+                    tickFormatter={(v: number) => `${v}%`}
+                    width={60}
+                  />
+                  <Tooltip
+                    formatter={(value: number, name: string) => [
+                      `${value}%`,
+                      name === 'dca' ? '每月定投' : '一次性买入',
+                    ]}
+                    labelFormatter={(label: string) => label}
+                  />
+                  <Legend formatter={(value: string) => (value === 'dca' ? '每月定投' : '一次性买入')} />
+                  <ReferenceLine y={0} stroke="#334155" strokeWidth={1} />
+                  <Line
+                    type="monotone"
+                    dataKey="dca"
+                    stroke="#2563eb"
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="lump"
+                    stroke="#f59e0b"
+                    strokeWidth={2}
+                    strokeDasharray="6 3"
+                    dot={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            <p className="mt-2 text-xs text-slate-400">
+              一次性买入 = 在起始月份一次性投入与定投方案相同的总金额（{fmt(summary.totalInvested)}）。
+              注意：一次性买入的资金从第一天起全额占用，而定投资金是分批占用的，
+              定投的资金效率请参考年化收益率（XIRR）。
+            </p>
           </CardContent>
         </Card>
 
