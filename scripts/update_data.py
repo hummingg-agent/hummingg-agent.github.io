@@ -10,14 +10,14 @@ QQQ 月度行情自动更新 + 自动部署脚本
   1. 读取 src/qqq_monthly.json 最后一个日期
   2. 通过 iFinD 插件拉取该日期前 45 天 ~ 今天的 QQQ.O 月度前复权行情
   3. 只保留「已完结月份」的数据（过滤当月未完结的 K 线），去重后追加合并
-  4. 有新数据 → git commit & push → GitHub Actions 自动构建并部署到 GitHub Pages
-              → 本地 npm run build → wrangler 部署到 Cloudflare Pages
+  4. 有新数据 → git commit & push → 两个平台云端自动构建部署：
+       - GitHub Actions → GitHub Pages（https://hummingg-agent.github.io/）
+       - Cloudflare Workers Builds → workers.dev（Git 集成，见 wrangler.jsonc）
      没有新数据 → 直接结束，不部署
 
 依赖：
   - 本机 Kimi Work 已安装 iFinD 插件（脚本会自动定位）
   - 本机 gh CLI 已登录 hummingg-agent 并配置 git 凭证（gh auth setup-git）
-  - 本机 wrangler 已登录 Cloudflare（wrangler login）
 """
 import json
 import os
@@ -103,21 +103,6 @@ def run_git(*args: str) -> None:
     subprocess.check_call(["git", *args], cwd=ROOT, env=ENV)
 
 
-def deploy_cloudflare() -> None:
-    """本地构建并部署到 Cloudflare Pages（wrangler 已登录，凭证在本机）"""
-    wrangler = ROOT / "node_modules" / ".bin" / ("wrangler.cmd" if os.name == "nt" else "wrangler")
-    if not wrangler.exists():
-        log("未找到 wrangler（npm i -D wrangler），跳过 Cloudflare 部署")
-        return
-    log("本地构建 ...")
-    subprocess.check_call(["npm", "run", "build"], cwd=ROOT, env=ENV)
-    log("部署到 Cloudflare Pages ...")
-    subprocess.check_call([str(wrangler), "pages", "deploy", "dist",
-                           "--project-name", "nasdaq-dca", "--branch", "main"],
-                          cwd=ROOT, env=ENV)
-    log("Cloudflare Pages 部署完成：https://nasdaq-dca.pages.dev/")
-
-
 def main() -> None:
     data = json.loads(DATA_FILE.read_text(encoding="utf-8"))
     last = datetime.strptime(data[-1]["d"], "%Y-%m-%d").date()
@@ -140,12 +125,7 @@ def main() -> None:
     run_git("commit", "-m",
             f"data: add {len(added)} monthly bar(s) ({added[0]['d']} ~ {added[-1]['d']})")
     run_git("push")
-    log("已推送，GitHub Actions 将自动构建并部署到 GitHub Pages。")
-
-    try:
-        deploy_cloudflare()
-    except Exception as e:
-        log(f"⚠️ Cloudflare 部署失败（GitHub Pages 不受影响）：{e}")
+    log("已推送。GitHub Actions 部署到 GitHub Pages，Cloudflare Workers Builds 同步自动构建部署。")
 
 
 if __name__ == "__main__":
