@@ -1,18 +1,19 @@
 # 纳指定投收益计算器（nasdaq-dca）
 
 QQQ（纳指 100 ETF）定投收益计算器。React + TypeScript + Vite 静态站点，
-月度行情数据通过 iFinD 拉取，由定时任务自动更新并部署到三个平台。
+月度行情数据通过 iFinD 拉取，由定时任务自动更新并部署到四个平台。
 
 ## 线上地址
 
 | 平台 | 地址 | 说明 |
 |------|------|------|
 | Vercel（自有域名） | https://nasdaq.hummingg.com/ | 国内可访问，推荐对外分享 |
+| EdgeOne（自有域名） | https://edgeone.hummingg.com/ | 腾讯边缘节点，国内最快 |
 | GitHub Pages | https://hummingg-agent.github.io/ | 用户主页仓库 |
 | Cloudflare Pages | https://hummingg.pages.dev/ | Git 集成自动构建 |
 | Vercel（默认域名） | https://hummingg.vercel.app/ | vercel.app 在国内被屏蔽，海外可访问 |
 
-四个地址服务同一份构建产物。
+五个地址服务同一份构建产物。
 
 ## 架构
 
@@ -22,10 +23,11 @@ QQQ（纳指 100 ETF）定投收益计算器。React + TypeScript + Vite 静态�
       → iFinD 插件拉取 QQQ.O 月度前复权收盘价
       → 去重追加到 src/qqq_monthly.json（只保留已完结月份）
       → 有新数据 → git commit & push；无新数据 → 直接结束
-  → push 触发三个平台云端自动构建部署：
+  → push 触发四个平台云端自动构建部署：
       ├─ GitHub Actions → GitHub Pages
       ├─ Cloudflare Pages（Git 集成）
-      └─ Vercel（Git 集成）
+      ├─ Vercel（Git 集成）
+      └─ 腾讯 EdgeOne Pages（Git 集成）
   → 任务会话记录结果 + 桌面通知
 ```
 
@@ -66,6 +68,14 @@ QQQ（纳指 100 ETF）定投收益计算器。React + TypeScript + Vite 静态�
 - Git 集成需要两层授权（见故障记录 #8）
 - 自定义域名 `nasdaq.hummingg.com` 绑定在 Vercel 项目
 
+### 腾讯 EdgeOne Pages（国际版 edgeone.ai）
+- 项目名 `hummingg`，Git 集成：GitHub App 授权本仓库，构建 `npm run build` / 输出 `dist`
+- 加速区域「全球（不含中国大陆）」：默认域名 `*.edgeone.dev` 在大陆访问一律 401（平台合规规则），
+  必须绑定自定义域名（无需 ICP 备案）才能在国内稳定访问
+- 自定义域名 `edgeone.hummingg.com`：TXT 所有权验证（`edgeonereclaim.edgeone` 主机记录）
+  + 精确 CNAME 到 `edgeone.hummingg.com.pages.dnsoe7.com`
+- **HTTPS 证书需在控制台手动申请**：域名管理 → 域名 → HTTPS 配置 → 边缘 HTTPS 证书 → 配置 → 免费证书
+
 ## 故障排查记录（2026-07-31 搭建实录）
 
 1. **npm install 报 `Invalid Version:`** — 旧 `package-lock.json` 与当前 npm 版本不兼容（arborist bug）。
@@ -90,21 +100,30 @@ QQQ（纳指 100 ETF）定投收益计算器。React + TypeScript + Vite 静态�
    `--retry 3 --retry-all-errors`；国内访问走自定义域名 `nasdaq.hummingg.com`。
 10. **Vercel 改名后默认域名格式** — 新格式账号默认域名是 `<项目>-<scope>.vercel.app`，
     干净的 `hummingg.vercel.app` 需手动添加：`POST /v10/projects/{id}/domains`。
+11. **EdgeOne 默认域名大陆 401** — 「全球（不含中国大陆）」加速区域下，`*.edgeone.dev` 默认域名
+    在大陆网络一律返回 401（`X-EOP-MSG: eo_time missing`），属平台合规规则而非故障。
+    解法：绑定自定义域名（无需备案）。
+12. **自定义域名被泛解析劫持** — DNS 中 `*.hummingg.com → vercel-dns` 的泛解析会接管所有子域名。
+    解法：精确记录优先于通配符，为 `edgeone` 主机加一条精确 CNAME 即可，不影响其他子域名。
+13. **EdgeOne 自定义域名 HTTPS 不自动签发** — 域名「已生效」后证书仍是「未配置」（回退到
+    `*.cdn.myqcloud.com` 通用证书，浏览器报不安全）。解法：域名管理 → HTTPS 配置 → 手动点「配置」
+    申请免费证书，几分钟后专用证书就绪。
 
 ## 常用维护命令
 
 ```bash
-# 手动执行一次数据更新（有新月线时自动 push 触发三平台部署）
+# 手动执行一次数据更新（有新月线时自动 push 触发四平台部署）
 python scripts/update_data.py
 
 # 本地开发预览
 npm run dev
 
-# 检查三平台部署状态
+# 检查四平台部署状态
 gh run list --repo hummingg-agent/hummingg-agent.github.io --limit 1   # GitHub Actions
 curl -s -o /dev/null -w '%{http_code}' https://hummingg.pages.dev/     # Cloudflare
 node_modules/.bin/vercel ls hummingg                                   # Vercel（● Ready 即正常）
-curl -s -o /dev/null -w '%{http_code}' https://nasdaq.hummingg.com/    # 自定义域名
+curl -s -o /dev/null -w '%{http_code}' https://nasdaq.hummingg.com/    # Vercel 自定义域名
+curl -s -o /dev/null -w '%{http_code}' https://edgeone.hummingg.com/   # EdgeOne
 ```
 
 ## 换新机器重建环境
@@ -119,5 +138,5 @@ gh auth setup-git
 python scripts/update_data.py
 ```
 
-Vercel / Cloudflare 侧无需在本机登录——Git 集成后所有构建部署都在云端，
+Vercel / Cloudflare / EdgeOne 侧无需在本机登录——Git 集成后所有构建部署都在云端，
 本机只需要 git push 权限和 iFinD 插件。
