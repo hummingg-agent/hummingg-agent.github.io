@@ -1,7 +1,16 @@
 # 指数基金定投收益计算器（nasdaq-dca）
 
 多标的指数基金定投收益计算器。React + TypeScript + Vite 静态站点，
-月度行情数据通过 iFinD / Wind 插件拉取，由定时任务自动更新并部署到四个平台。
+行情数据通过 iFinD / Wind 插件拉取，由定时任务自动更新并部署到四个平台。
+
+## 功能
+
+- 定投收益回测：按月定投，自定义每月金额与起始月份，USD / CNY / HKD 自动格式化
+- 定投 vs 一次性买入对比
+- 累计收益率曲线、年度收益明细
+- **定投频率对比（2026-07-31 上线）**：同一月预算下，每天 / 每周 / 每月定投的
+  收益曲线对比与最大差异（基于全历史日线数据计算，前端懒加载）
+  ——实测长期差异约 2% 量级，频率对长期收益影响不大
 
 ## 标的与数据源
 
@@ -13,7 +22,12 @@
 | 中证500指数 | 000905.SH | CNY | iFinD | 2004-12 |
 | 恒生指数 | HSI.HI | HKD | Wind index_data | 1990-01 |
 
-数据文件：`src/data/<key>.json`，格式 `[{"d":"YYYY-MM-DD","c":close}]`（前复权月收盘价）。
+数据文件（格式均为 `[{"d":"YYYY-MM-DD","c":close}]`）：
+
+- `src/data/<key>.json`：月度前复权收盘价，主数据，随构建打入主包
+- `src/data/<key>_daily.json`：全历史日线收盘价，供「定投频率对比图」使用，
+  前端通过 `import.meta.glob` 按需懒加载（每标的独立分包 40-60KB gzip）
+
 前端按标的切换，支持自定义每月定投金额（USD / CNY / HKD 自动格式化）。
 
 注意：SPY / VOO / DIA 等美股 ETF（除 QQQ.O 外）在 iFinD 与 Wind 插件均取不到
@@ -61,8 +75,11 @@ wrangler OAuth token 无 zone DNS 写权限，DNS 记录改用 Cloudflare MCP �
   → python scripts/update_data.py
       → 遍历 5 个标的，按数据源增量拉取月度前复权收盘价
         （iFinD：QQQ.O / 000300.SH / 000905.SH；Wind：SPX.GI / HSI.HI）
-      → 去重追加到 src/data/<key>.json（只保留已完结月份）
-      → 有新数据 → git commit & push；无新数据 → 直接结束
+      → 去重追加到 src/data/<key>.json（只保留已完结月份，120 天回看防漏跑，
+        按月去重，发现缺失月份打印警告）
+      → 同步增量维护 src/data/<key>_daily.json 日线（10 天回看、按日去重，
+        日线保留当月未完结数据）
+      → 月线或日线任一有新数据 → git commit & push；都无 → 直接结束
   → push 触发四个平台云端自动构建部署：
       ├─ GitHub Actions → GitHub Pages
       ├─ Cloudflare Pages（Git 集成）
@@ -76,9 +93,11 @@ wrangler OAuth token 无 zone DNS 写权限，DNS 记录改用 Cloudflare MCP �
 
 ## 脚本
 
-- `scripts/update_data.py`：月度增量更新（定时任务调用）
-- `scripts/fetch_history.py`：全量历史回灌，用法 `python3 scripts/fetch_history.py [key ...]`
-  （不传 key 则全部重建；iFinD 单次限 3 年、Wind 单次约百条，脚本自动分块）
+- `scripts/update_data.py`：月线 + 日线增量更新（定时任务调用），有新增自动 commit & push
+- `scripts/fetch_history.py`：全量历史回灌，用法：
+  - `python3 scripts/fetch_history.py [key ...]`：重建月线（不传 key 则全部重建）
+  - `python3 scripts/fetch_history.py --daily [key ...]`：重建全历史日线
+  - iFinD 单次限 3 年、Wind 单次约 5 年块，脚本自动分块；按月/按日去重后整体重写
 
 ## 仓库说明
 
