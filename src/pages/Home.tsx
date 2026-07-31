@@ -11,6 +11,7 @@ import {
   computeDca, computeAllStarts, summarizeComparison,
   fmtPct, fmtMoney,
 } from '@/lib/dca'
+import { downloadShareImage } from '@/lib/share'
 
 const DURATION_PRESETS = [12, 24, 36, 60, 120]
 
@@ -119,14 +120,34 @@ export default function Home() {
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
         {/* 头部 */}
-        <header className="mb-6">
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-            指数基金定投收益计算器
-          </h1>
-          <p className="mt-2 text-sm text-slate-500">
-            {asset.name}（{asset.code}）· {asset.desc} · 前复权月收盘价计算，含分红再投资 ·
-            数据区间 {FIRST_MONTH} ~ {MONTHS[MONTHS.length - 1]} · 数据来源：{asset.source}
-          </p>
+        <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+              指数基金定投收益计算器
+            </h1>
+            <p className="mt-2 text-sm text-slate-500">
+              {asset.name}（{asset.code}）· {asset.desc} · 前复权月收盘价计算，含分红再投资 ·
+              数据区间 {FIRST_MONTH} ~ {MONTHS[MONTHS.length - 1]} · 数据来源：{asset.source}
+            </p>
+          </div>
+          <button
+            onClick={() =>
+              downloadShareImage({
+                assetName: asset.name,
+                assetCode: asset.code,
+                currency: cur,
+                startMonth: effectiveStartMonth,
+                endMonth: MONTHS[MONTHS.length - 1],
+                monthly,
+                series,
+                summary,
+                siteUrl: 'nasdaq.hummingg.com',
+              })
+            }
+            className="shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
+          >
+            分享结果图
+          </button>
         </header>
 
         {/* 标的切换 */}
