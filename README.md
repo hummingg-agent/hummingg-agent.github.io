@@ -1,7 +1,25 @@
-# 纳指定投收益计算器（nasdaq-dca）
+# 指数基金定投收益计算器（nasdaq-dca）
 
-QQQ（纳指 100 ETF）定投收益计算器。React + TypeScript + Vite 静态站点，
-月度行情数据通过 iFinD 拉取，由定时任务自动更新并部署到四个平台。
+多标的指数基金定投收益计算器。React + TypeScript + Vite 静态站点，
+月度行情数据通过 iFinD / Wind 插件拉取，由定时任务自动更新并部署到四个平台。
+
+## 标的与数据源
+
+| 标的 | 代码 | 币种 | 数据源 | 数据起点 |
+|------|------|------|--------|----------|
+| 纳斯达克100 ETF | QQQ.O | USD | iFinD | 1999-03 |
+| 标普500指数 | SPX.GI | USD | Wind index_data | 1990-01 |
+| 沪深300指数 | 000300.SH | CNY | iFinD | 2002-01 |
+| 中证500指数 | 000905.SH | CNY | iFinD | 2004-12 |
+| 恒生指数 | HSI.HI | HKD | Wind index_data | 1990-01 |
+
+数据文件：`src/data/<key>.json`，格式 `[{"d":"YYYY-MM-DD","c":close}]`（前复权月收盘价）。
+前端按标的切换，支持自定义每月定投金额（USD / CNY / HKD 自动格式化）。
+
+注意：SPY / VOO / DIA 等美股 ETF（除 QQQ.O 外）在 iFinD 与 Wind 插件均取不到
+长期月线（Wind fund 通道仅有 2018 年后数据），故美股标普500敞口用 SPX.GI 指数代替。
+两家数据源价格复权口径不同（如 1999-03 QQQ：iFinD 44.27 vs Wind 88.54），
+同一标的的数据必须始终来自同一数据源，不可混用。
 
 ## 线上地址
 
@@ -20,8 +38,9 @@ QQQ（纳指 100 ETF）定投收益计算器。React + TypeScript + Vite 静态�
 ```
 每月 3 日 09:17（Asia/Shanghai）Kimi Work 定时任务
   → python scripts/update_data.py
-      → iFinD 插件拉取 QQQ.O 月度前复权收盘价
-      → 去重追加到 src/qqq_monthly.json（只保留已完结月份）
+      → 遍历 5 个标的，按数据源增量拉取月度前复权收盘价
+        （iFinD：QQQ.O / 000300.SH / 000905.SH；Wind：SPX.GI / HSI.HI）
+      → 去重追加到 src/data/<key>.json（只保留已完结月份）
       → 有新数据 → git commit & push；无新数据 → 直接结束
   → push 触发四个平台云端自动构建部署：
       ├─ GitHub Actions → GitHub Pages
@@ -31,8 +50,14 @@ QQQ（纳指 100 ETF）定投收益计算器。React + TypeScript + Vite 静态�
   → 任务会话记录结果 + 桌面通知
 ```
 
-数据源 iFinD 插件只存在于本机 Kimi Work，因此「拉数」必须在本地运行，
+数据源插件只存在于本机 Kimi Work，因此「拉数」必须在本地运行，
 「构建部署」全部在云端，本地唯一的写操作是 git push。
+
+## 脚本
+
+- `scripts/update_data.py`：月度增量更新（定时任务调用）
+- `scripts/fetch_history.py`：全量历史回灌，用法 `python3 scripts/fetch_history.py [key ...]`
+  （不传 key 则全部重建；iFinD 单次限 3 年、Wind 单次约百条，脚本自动分块）
 
 ## 仓库说明
 
@@ -45,7 +70,7 @@ QQQ（纳指 100 ETF）定投收益计算器。React + TypeScript + Vite 静态�
 
 - Node.js 20+（当前 v24）
 - npm 依赖：`npm install`（构建：`npm run build` → `dist/`）
-- Kimi Work + iFinD 插件（数据拉取，脚本自动定位插件路径，macOS/Windows 均支持）
+- Kimi Work + iFinD 与 Wind 插件（数据拉取，脚本自动定位插件路径，macOS/Windows 均支持）
 - `agent-gw` Python SDK（脚本首次运行时自动安装）
 - gh CLI：登录 `hummingg-agent` 账号并执行过 `gh auth setup-git`（git push 凭证）
 - 定时任务：Kimi Work Blueprint Automation `automation_f15059b0-89e6-49b8-a887-1276fdf1fee2`，
