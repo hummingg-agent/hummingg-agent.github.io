@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://nasdaq.hummingg.com/sitemap.xml
+Sitemap: https://dingtouji.com/sitemap.xml
