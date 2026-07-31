@@ -32,6 +32,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -161,6 +162,18 @@ def run_git(*args: str) -> None:
     subprocess.check_call(["git", *args], cwd=ROOT, env=ENV)
 
 
+def git_push() -> bool:
+    """push 失败自动重试（本机到 github.com 链路不稳，走 git 配置的代理）"""
+    for attempt in range(4):
+        r = subprocess.run(["git", "push"], cwd=ROOT, env=ENV,
+                           capture_output=True, text=True)
+        if r.returncode == 0:
+            return True
+        log(f"  git push 第 {attempt + 1} 次失败，15 秒后重试：{(r.stderr or '')[-150:]}")
+        time.sleep(15)
+    return False
+
+
 def main() -> None:
     today = date.today()
     current_ym = today.strftime("%Y-%m")
@@ -196,8 +209,11 @@ def main() -> None:
     run_git("add", "src/data")
     summary = ", ".join(f"{k}+{len(v)}" for k, v in all_added.items())
     run_git("commit", "-m", f"data: monthly update ({summary})")
-    run_git("push")
-    log("已推送。GitHub Pages / Cloudflare / Vercel / EdgeOne 将自动构建部署。")
+    if git_push():
+        log("已推送。GitHub Pages / Cloudflare / Vercel / EdgeOne 将自动构建部署。")
+    else:
+        log("⚠️ git push 多次失败：提交保留在本地，下次运行时会自动补推。")
+        log("  如需手动推送：cd 项目目录后执行 git push（需代理，端口见 git config http.proxy）")
 
 
 if __name__ == "__main__":
