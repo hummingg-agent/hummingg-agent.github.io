@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import {
-  ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, ReferenceLine, ReferenceDot,
+  ComposedChart, Area, Line, LineChart, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, ReferenceLine, ReferenceDot, Legend,
 } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
@@ -19,6 +19,14 @@ function durationLabel(m: number) {
 }
 
 const CURRENCY_SYMBOL: Record<Currency, string> = { USD: '$', CNY: '¥', HKD: 'HK$' }
+
+const ASSET_COLORS: Record<string, string> = {
+  qqq: '#2563eb',
+  spx: '#7c3aed',
+  hs300: '#dc2626',
+  zz500: '#ea580c',
+  hsi: '#16a34a',
+}
 
 export default function Home() {
   const [assetKey, setAssetKey] = useState(ASSETS[0].key)
@@ -64,6 +72,34 @@ export default function Home() {
   const cur = asset.currency
   const sym = CURRENCY_SYMBOL[cur]
   const fmt = (v: number, digits = 0) => fmtMoney(v, cur, digits)
+
+  // 多标的对比：同一起点，各标的定投累计收益率（%）
+  const multiSeries = useMemo(() => {
+    const byMonth = new Map<string, Record<string, number | string>>()
+    for (const a of ASSETS) {
+      const idx = a.data.findIndex((p) => p.d.slice(0, 7) >= effectiveStartMonth)
+      if (idx < 0 || idx >= a.data.length - 1) continue
+      const { series: s } = computeDca(a.data, idx, 100)
+      for (const pt of s) {
+        const row = byMonth.get(pt.month) ?? { month: pt.month }
+        row[a.key] = Math.round(pt.totalReturn * 1000) / 10
+        byMonth.set(pt.month, row)
+      }
+    }
+    return [...byMonth.values()].sort((x, y) =>
+      String(x.month).localeCompare(String(y.month))
+    )
+  }, [effectiveStartMonth])
+
+  // 各标的期末收益率（用于图上方的小结标签）
+  const multiFinals = useMemo(() => {
+    return ASSETS.map((a) => {
+      const idx = a.data.findIndex((p) => p.d.slice(0, 7) >= effectiveStartMonth)
+      if (idx < 0 || idx >= a.data.length - 1) return null
+      const { summary: s } = computeDca(a.data, idx, 100)
+      return { key: a.key, name: a.name, value: s.totalReturn, from: a.data[idx].d.slice(0, 7) }
+    }).filter((x): x is NonNullable<typeof x> => x !== null)
+  }, [effectiveStartMonth])
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -253,6 +289,78 @@ export default function Home() {
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* 多标的定投收益率对比 */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="text-base">
+              多标的定投收益率对比（{effectiveStartMonth} 起）
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="mb-4 flex flex-wrap gap-2">
+              {multiFinals.map((f) => (
+                <div
+                  key={f.key}
+                  className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+                >
+                  <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                    <span
+                      className="inline-block h-2.5 w-2.5 rounded-full"
+                      style={{ backgroundColor: ASSET_COLORS[f.key] }}
+                    />
+                    {f.name}
+                    {f.from !== effectiveStartMonth && (
+                      <span className="text-slate-400">（{f.from} 起）</span>
+                    )}
+                  </div>
+                  <div
+                    className={`mt-0.5 text-base font-bold ${
+                      f.value >= 0 ? 'text-green-600' : 'text-red-600'
+                    }`}
+                  >
+                    {fmtPct(f.value)}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="h-80 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={multiSeries} margin={{ top: 8, right: 12, bottom: 0, left: 12 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} minTickGap={40} />
+                  <YAxis
+                    tick={{ fontSize: 12, fill: '#64748b' }}
+                    tickFormatter={(v: number) => `${v}%`}
+                    width={60}
+                  />
+                  <Tooltip
+                    formatter={(value: number, name: string) => [`${value}%`, name]}
+                    labelFormatter={(label: string) => label}
+                  />
+                  <Legend />
+                  <ReferenceLine y={0} stroke="#334155" strokeWidth={1} />
+                  {ASSETS.map((a) => (
+                    <Line
+                      key={a.key}
+                      type="monotone"
+                      dataKey={a.key}
+                      name={a.name}
+                      stroke={ASSET_COLORS[a.key]}
+                      strokeWidth={2}
+                      dot={false}
+                      connectNulls
+                    />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            <p className="mt-2 text-xs text-slate-400">
+              同一起点每月定投，各标的累计收益率对比（收益率与币种、金额无关）；
+              数据起点晚于所选起点的标的，从其最早可得月份开始。
+            </p>
           </CardContent>
         </Card>
 
