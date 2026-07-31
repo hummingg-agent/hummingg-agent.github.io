@@ -250,6 +250,26 @@ export default function Home() {
           </CardContent>
         </Card>
 
+        {/* 导航目录：吸顶锚点跳转 */}
+        <nav className="sticky top-2 z-20 mb-6 flex gap-1 overflow-x-auto rounded-full border border-slate-200 bg-white/90 p-1 shadow-sm backdrop-blur">
+          {[
+            ['chart-value', '收益曲线'],
+            ['chart-return', '累计收益率'],
+            ['chart-lumpsum', 'vs 一次性买入'],
+            ['chart-startmonths', '全起点对比'],
+            ['chart-freq', '频率对比'],
+            ['chart-multi', '多标的对比'],
+          ].map(([id, label]) => (
+            <a
+              key={id}
+              href={`#${id}`}
+              className="whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-blue-50 hover:text-blue-600 sm:text-sm"
+            >
+              {label}
+            </a>
+          ))}
+        </nav>
+
         {/* 指标卡 */}
         <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <StatCard title="定投期数" value={`${summary.months} 期`} />
@@ -276,7 +296,7 @@ export default function Home() {
         </div>
 
         {/* 收益曲线：定投到最新月份 */}
-        <Card className="mb-6">
+        <Card id="chart-value" className="mb-6 scroll-mt-20">
           <CardHeader>
             <CardTitle className="text-base">
               {effectiveStartMonth} 起每月定投 {fmt(monthly)} 至今 —— 账户市值 vs 累计投入
@@ -325,7 +345,7 @@ export default function Home() {
         </Card>
 
         {/* 累计收益率曲线：定投到最新月份 */}
-        <Card className="mb-6">
+        <Card id="chart-return" className="mb-6 scroll-mt-20">
           <CardHeader>
             <CardTitle className="text-base">定投累计收益率变化</CardTitle>
           </CardHeader>
@@ -360,7 +380,7 @@ export default function Home() {
         </Card>
 
         {/* 定投 vs 一次性买入 */}
-        <Card className="mb-6">
+        <Card id="chart-lumpsum" className="mb-6 scroll-mt-20">
           <CardHeader>
             <CardTitle className="text-base">
               定投 vs 一次性买入（{effectiveStartMonth} 起）
@@ -441,167 +461,8 @@ export default function Home() {
           </CardContent>
         </Card>
 
-        {/* 定投频率对比：日 / 周 / 月 */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="text-base">
-              定投频率对比：每天 / 每周 / 每月（{effectiveStartMonth} 起）
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {freqLast ? (
-              <>
-                <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                    <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                      <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: '#2563eb' }} />
-                      每月一次
-                    </div>
-                    <div className={`mt-0.5 text-base font-bold ${freqLast.monthly >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {freqLast.monthly >= 0 ? '+' : ''}{freqLast.monthly}%
-                    </div>
-                  </div>
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                    <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                      <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: '#f59e0b' }} />
-                      每周一次
-                    </div>
-                    <div className={`mt-0.5 text-base font-bold ${freqLast.weekly >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {freqLast.weekly >= 0 ? '+' : ''}{freqLast.weekly}%
-                    </div>
-                  </div>
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                    <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                      <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: '#16a34a' }} />
-                      每天一次
-                    </div>
-                    <div className={`mt-0.5 text-base font-bold ${freqLast.daily >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {freqLast.daily >= 0 ? '+' : ''}{freqLast.daily}%
-                    </div>
-                  </div>
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                    <div className="text-xs text-slate-500">三种频率最大差异</div>
-                    <div className="mt-0.5 text-base font-bold text-slate-900">
-                      {freqSpread.toFixed(1)} 个百分点
-                    </div>
-                  </div>
-                </div>
-                <div className="h-64 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={freqSeries} margin={{ top: 8, right: 12, bottom: 0, left: 12 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                      <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} minTickGap={40} />
-                      <YAxis
-                        tick={{ fontSize: 12, fill: '#64748b' }}
-                        tickFormatter={(v: number) => `${v}%`}
-                        width={60}
-                      />
-                      <Tooltip
-                        formatter={(value: number, name: string) => [
-                          `${value}%`,
-                          name === 'monthly' ? '每月一次' : name === 'weekly' ? '每周一次' : '每天一次',
-                        ]}
-                        labelFormatter={(label: string) => label}
-                      />
-                      <Legend
-                        formatter={(value: string) =>
-                          value === 'monthly' ? '每月一次' : value === 'weekly' ? '每周一次' : '每天一次'
-                        }
-                      />
-                      <ReferenceLine y={0} stroke="#334155" strokeWidth={1} />
-                      <Line type="monotone" dataKey="monthly" stroke="#2563eb" strokeWidth={2} dot={false} />
-                      <Line type="monotone" dataKey="weekly" stroke="#f59e0b" strokeWidth={2} dot={false} />
-                      <Line type="monotone" dataKey="daily" stroke="#16a34a" strokeWidth={2} dot={false} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-                <p className="mt-2 text-xs text-slate-400">
-                  基于日线数据实测：每月预算相同，每月一次（月末买入）/ 每周一次（周末买入）/ 每天一次（每日买入）。
-                  三条曲线几乎重合——频率对长期收益的影响很小，按你的资金节奏选择即可。
-                </p>
-              </>
-            ) : (
-              <div className="flex h-64 items-center justify-center text-sm text-slate-400">
-                正在加载日线数据…
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* 多标的定投收益率对比 */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="text-base">
-              多标的定投收益率对比（{effectiveStartMonth} 起）
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="mb-4 flex flex-wrap gap-2">
-              {multiFinals.map((f) => (
-                <div
-                  key={f.key}
-                  className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
-                >
-                  <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                    <span
-                      className="inline-block h-2.5 w-2.5 rounded-full"
-                      style={{ backgroundColor: ASSET_COLORS[f.key] }}
-                    />
-                    {f.name}
-                    {f.from !== effectiveStartMonth && (
-                      <span className="text-slate-400">（{f.from} 起）</span>
-                    )}
-                  </div>
-                  <div
-                    className={`mt-0.5 text-base font-bold ${
-                      f.value >= 0 ? 'text-green-600' : 'text-red-600'
-                    }`}
-                  >
-                    {fmtPct(f.value)}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="h-80 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={multiSeries} margin={{ top: 8, right: 12, bottom: 0, left: 12 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} minTickGap={40} />
-                  <YAxis
-                    tick={{ fontSize: 12, fill: '#64748b' }}
-                    tickFormatter={(v: number) => `${v}%`}
-                    width={60}
-                  />
-                  <Tooltip
-                    formatter={(value: number, name: string) => [`${value}%`, name]}
-                    labelFormatter={(label: string) => label}
-                  />
-                  <Legend />
-                  <ReferenceLine y={0} stroke="#334155" strokeWidth={1} />
-                  {ASSETS.map((a) => (
-                    <Line
-                      key={a.key}
-                      type="monotone"
-                      dataKey={a.key}
-                      name={a.name}
-                      stroke={ASSET_COLORS[a.key]}
-                      strokeWidth={2}
-                      dot={false}
-                      connectNulls
-                    />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-            <p className="mt-2 text-xs text-slate-400">
-              同一起点每月定投，各标的累计收益率对比（收益率与币种、金额无关）；
-              数据起点晚于所选起点的标的，从其最早可得月份开始。
-            </p>
-          </CardContent>
-        </Card>
-
         {/* 全起点对比图（含定投月数控制） */}
-        <Card className="mb-6">
+        <Card id="chart-startmonths" className="mb-6 scroll-mt-20">
           <CardHeader>
             <CardTitle className="text-base">不同起始月份的定投收益率对比</CardTitle>
           </CardHeader>
@@ -693,6 +554,165 @@ export default function Home() {
             <p className="mt-2 text-xs text-slate-400">
               横轴为定投起始月份，纵轴为该起点连续定投 {duration} 期后的累计收益率
               {selectedPoint ? `；蓝点为当前选中的起始月份 ${effectiveStartMonth}` : ''}。
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* 定投频率对比：日 / 周 / 月 */}
+        <Card id="chart-freq" className="mb-6 scroll-mt-20">
+          <CardHeader>
+            <CardTitle className="text-base">
+              定投频率对比：每天 / 每周 / 每月（{effectiveStartMonth} 起）
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {freqLast ? (
+              <>
+                <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                      <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: '#2563eb' }} />
+                      每月一次
+                    </div>
+                    <div className={`mt-0.5 text-base font-bold ${freqLast.monthly >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {freqLast.monthly >= 0 ? '+' : ''}{freqLast.monthly}%
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                      <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: '#f59e0b' }} />
+                      每周一次
+                    </div>
+                    <div className={`mt-0.5 text-base font-bold ${freqLast.weekly >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {freqLast.weekly >= 0 ? '+' : ''}{freqLast.weekly}%
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                      <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: '#16a34a' }} />
+                      每天一次
+                    </div>
+                    <div className={`mt-0.5 text-base font-bold ${freqLast.daily >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {freqLast.daily >= 0 ? '+' : ''}{freqLast.daily}%
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="text-xs text-slate-500">三种频率最大差异</div>
+                    <div className="mt-0.5 text-base font-bold text-slate-900">
+                      {freqSpread.toFixed(1)} 个百分点
+                    </div>
+                  </div>
+                </div>
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={freqSeries} margin={{ top: 8, right: 12, bottom: 0, left: 12 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                      <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} minTickGap={40} />
+                      <YAxis
+                        tick={{ fontSize: 12, fill: '#64748b' }}
+                        tickFormatter={(v: number) => `${v}%`}
+                        width={60}
+                      />
+                      <Tooltip
+                        formatter={(value: number, name: string) => [
+                          `${value}%`,
+                          name === 'monthly' ? '每月一次' : name === 'weekly' ? '每周一次' : '每天一次',
+                        ]}
+                        labelFormatter={(label: string) => label}
+                      />
+                      <Legend
+                        formatter={(value: string) =>
+                          value === 'monthly' ? '每月一次' : value === 'weekly' ? '每周一次' : '每天一次'
+                        }
+                      />
+                      <ReferenceLine y={0} stroke="#334155" strokeWidth={1} />
+                      <Line type="monotone" dataKey="monthly" stroke="#2563eb" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="weekly" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="daily" stroke="#16a34a" strokeWidth={2} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+                <p className="mt-2 text-xs text-slate-400">
+                  基于日线数据实测：每月预算相同，每月一次（月末买入）/ 每周一次（周末买入）/ 每天一次（每日买入）。
+                  三条曲线几乎重合——频率对长期收益的影响很小，按你的资金节奏选择即可。
+                </p>
+              </>
+            ) : (
+              <div className="flex h-64 items-center justify-center text-sm text-slate-400">
+                正在加载日线数据…
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* 多标的定投收益率对比 */}
+        <Card id="chart-multi" className="mb-6 scroll-mt-20">
+          <CardHeader>
+            <CardTitle className="text-base">
+              多标的定投收益率对比（{effectiveStartMonth} 起）
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="mb-4 flex flex-wrap gap-2">
+              {multiFinals.map((f) => (
+                <div
+                  key={f.key}
+                  className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+                >
+                  <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                    <span
+                      className="inline-block h-2.5 w-2.5 rounded-full"
+                      style={{ backgroundColor: ASSET_COLORS[f.key] }}
+                    />
+                    {f.name}
+                    {f.from !== effectiveStartMonth && (
+                      <span className="text-slate-400">（{f.from} 起）</span>
+                    )}
+                  </div>
+                  <div
+                    className={`mt-0.5 text-base font-bold ${
+                      f.value >= 0 ? 'text-green-600' : 'text-red-600'
+                    }`}
+                  >
+                    {fmtPct(f.value)}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="h-80 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={multiSeries} margin={{ top: 8, right: 12, bottom: 0, left: 12 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} minTickGap={40} />
+                  <YAxis
+                    tick={{ fontSize: 12, fill: '#64748b' }}
+                    tickFormatter={(v: number) => `${v}%`}
+                    width={60}
+                  />
+                  <Tooltip
+                    formatter={(value: number, name: string) => [`${value}%`, name]}
+                    labelFormatter={(label: string) => label}
+                  />
+                  <Legend />
+                  <ReferenceLine y={0} stroke="#334155" strokeWidth={1} />
+                  {ASSETS.map((a) => (
+                    <Line
+                      key={a.key}
+                      type="monotone"
+                      dataKey={a.key}
+                      name={a.name}
+                      stroke={ASSET_COLORS[a.key]}
+                      strokeWidth={2}
+                      dot={false}
+                      connectNulls
+                    />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            <p className="mt-2 text-xs text-slate-400">
+              同一起点每月定投，各标的累计收益率对比（收益率与币种、金额无关）；
+              数据起点晚于所选起点的标的，从其最早可得月份开始。
             </p>
           </CardContent>
         </Card>
