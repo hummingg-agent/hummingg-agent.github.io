@@ -562,7 +562,7 @@ export default function Home() {
         <Card id="chart-freq" className="mb-6 scroll-mt-20">
           <CardHeader>
             <CardTitle className="text-base">
-              定投频率对比：每天 / 每周 / 每月（{effectiveStartMonth} 起）
+              定投频率对比：{asset.name}（{asset.code}）每天 / 每周 / 每月（{effectiveStartMonth} 起）
             </CardTitle>
           </CardHeader>
           <CardContent>
