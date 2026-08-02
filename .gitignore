@@ -28,6 +28,12 @@ dist-ssr
 # iFinD 临时数据
 tmp/
 
+# 原始付费(iFinD/Wind)数据备份，不随站点部署
+src/data/_paid_backup/
+
 # Python 缓存
 __pycache__/
 *.pyc
+
+# WorkBuddy 项目内部目录（非站点源码）
+.workbuddy/

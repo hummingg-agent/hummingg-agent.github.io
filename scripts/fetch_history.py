@@ -1,209 +1,65 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-一次性历史数据抓取脚本：为每个资产生成 src/data/<key>.json
+一次性历史数据全量重建：为每个资产生成 src/data/<key>.json（月线）+ <key>_daily.json（日线）。
 
-资产注册表（key → 数据源/代码）：
-  qqq    QQQ.O        纳斯达克100 ETF   existing（复用现有 src/data/qqq.json）
-  spx    SPX.GI       标普500指数       Wind index_data（5 年窗口分块）
-  hs300  000300.SH    沪深300指数       iFinD（3 年窗口分块）
-  zz500  000905.SH    中证500指数       iFinD（3 年窗口分块）
-  hsi    HSI.HI       恒生指数          Wind index_data（分块）
+数据源：global_index_collector（免费源：新浪 / 东方财富 / AkShare。原 iFinD / Wind 付费源已移除）。
+流程：
+  1. 运行 collector 的 main.py update（免费源抓取，带限速 / 防封，写入 SQLite）
+  2. 运行 export_dca.py 从 SQLite 导出成站点所需格式
+输出格式与旧版一致：[{"d":"YYYY-MM-DD","c":close}, ...]，月线仅保留已完结月份。
 
-注：SPY/VOO 等美股 ETF（除 QQQ.O 外）在 iFinD 与 Wind 插件均取不到长期月线，
-故美股标普500敞口用 SPX.GI 指数代替。
-
-输出格式与 qqq_monthly.json 一致：[{"d":"YYYY-MM-DD","c":close}, ...]
-只保留已完结月份的 K 线。
+依赖：global_index_collector 环境（含 akshare 的 python，见 COLLECTOR_PY）。
 """
-import csv
-import io
-import json
-import os
-import re
 import subprocess
 import sys
-from datetime import date, datetime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = ROOT / "src" / "data"
-TMP_DIR = ROOT / "tmp"
+# collector 工程目录与 python（含 akshare 的虚拟环境）
+COLLECTOR_DIR = Path("/Users/hummingg/WorkBuddy/2026-08-01-18-22-16/global_index_collector")
+COLLECTOR_PY = Path("/Users/hummingg/.workbuddy/binaries/python/envs/default/bin/python")
 
-IFIND_TOOL = Path.home() / (
-    "Library/Application Support/kimi-desktop/daimon-share/daimon/runtime/"
-    "kimi-code/home/plugins/managed/ifind/scripts/ifind_tool.py"
-)
-IFIND_TOOL_WIN = Path(os.environ.get("APPDATA", "")) / (
-    "kimi-desktop/daimon-share/daimon/runtime/kimi-code/home/plugins/managed/ifind/scripts/ifind_tool.py"
-)
-WIND_CLI = Path.home() / (
-    "Library/Application Support/kimi-desktop/daimon-share/daimon/runtime/"
-    "kimi-code/home/plugins/managed/wind-allskill/skills/wind-mcp-skill/scripts/cli.mjs"
-)
-
+# 资产注册表（仅作文档 / 起点参考；实际覆盖范围由 collector 的 build_indexes 决定）
 ASSETS = {
-    "qqq": {"source": "ifind", "code": "QQQ.O", "name": "纳斯达克100 ETF (QQQ)", "begin": "1999-03-10"},
-    "spx": {"source": "wind_index", "code": "SPX.GI", "name": "标普500指数", "begin": "1990-01-01"},
-    "hs300": {"source": "ifind", "code": "000300.SH", "name": "沪深300指数", "begin": "2002-01-04"},
-    "zz500": {"source": "ifind", "code": "000905.SH", "name": "中证500指数", "begin": "2004-12-31"},
-    "hsi": {"source": "wind_index", "code": "HSI.HI", "name": "恒生指数", "begin": "1990-01-01"},
+    "qqq":   {"name": "纳斯达克100 ETF", "begin": "1999-03-10"},
+    "spx":   {"name": "标普500",         "begin": "1990-01-01"},
+    "hs300": {"name": "沪深300",         "begin": "2002-01-04"},
+    "zz500": {"name": "中证500",         "begin": "2004-12-31"},
+    "hsi":   {"name": "恒生指数",         "begin": "1990-01-01"},
 }
-
-# 月线：分块边界按月去重、过滤当月未完结 K 线；日线：按日去重、不过滤
-DAILY = "--daily" in sys.argv
 
 
 def log(msg: str) -> None:
     print(f"[fetch_history] {msg}", flush=True)
 
 
-def find_ifind_tool() -> Path:
-    for p in (IFIND_TOOL, IFIND_TOOL_WIN):
-        if p.exists():
-            return p
-    raise SystemExit(f"未找到 iFinD 插件脚本，尝试过：{[str(p) for p in (IFIND_TOOL, IFIND_TOOL_WIN)]}")
-
-
-def current_ym() -> str:
-    return date.today().strftime("%Y-%m")
-
-
-def write_json(key: str, rows: list[dict]) -> None:
-    DATA_DIR.mkdir(exist_ok=True)
-    rows.sort(key=lambda r: r["d"])
-    if DAILY:
-        # 日线：按日去重（保留最后一条），输出 <key>_daily.json
-        dedup = {r["d"]: r for r in rows}
-        rows = [dedup[d] for d in sorted(dedup)]
-        out = DATA_DIR / f"{key}_daily.json"
-    else:
-        rows = [r for r in rows if r["d"][:7] != current_ym()]
-        # 按月去重：分块边界月的 K 线会被相邻两块各返回一次且日期标注不同，
-        # 同月保留日期最晚的一条（真正的月末 K 线）
-        by_month: dict[str, dict] = {}
-        for r in rows:
-            m = r["d"][:7]
-            if m not in by_month or r["d"] > by_month[m]["d"]:
-                by_month[m] = r
-        rows = [by_month[m] for m in sorted(by_month)]
-        out = DATA_DIR / f"{key}.json"
-    out.write_text(json.dumps(rows, separators=(",", ":")), encoding="utf-8")
-    log(f"{key}: {len(rows)} 条 {rows[0]['d']} ~ {rows[-1]['d']} -> {out.relative_to(ROOT)}")
-
-
-def parse_wind_csv_text(text: str) -> list[dict]:
-    rows = []
-    reader = csv.DictReader(io.StringIO(text))
-    for r in reader:
-        if not r.get("trade_date") or not r.get("close"):
-            continue
-        rows.append({"d": r["trade_date"][:10], "c": round(float(r["close"]), 4)})
-    return rows
-
-
-def fetch_wind_chunked(server: str, tool: str, code: str, begin: date, end: date) -> list[dict]:
-    """Wind K 线按 5 年窗口分块（index 通道日线 5 年约 1260 条不截断）"""
-    rows: list[dict] = []
-    chunk_start = begin
-    while chunk_start <= end:
-        chunk_end = min(chunk_start + timedelta(days=365 * 5 - 1), end)
-        params = {
-            "windcode": code,
-            "begin_date": chunk_start.strftime("%Y%m%d"),
-            "end_date": chunk_end.strftime("%Y%m%d"),
-            "period": "10" if DAILY else "12",
-        }
-        csv_path = None
-        for attempt in range(3):
-            r = subprocess.run(
-                ["node", str(WIND_CLI), "call", server, tool, json.dumps(params)],
-                capture_output=True, text=True, timeout=600,
-            )
-            out = r.stdout + r.stderr
-            m = re.search(r"saved to (\S+?\.csv)", out)
-            if m and Path(m.group(1)).exists():
-                csv_path = Path(m.group(1))
-                break
-            log(f"  Wind {code} {chunk_start}~{chunk_end} 第 {attempt + 1} 次失败，重试")
-        if csv_path is None:
-            raise SystemExit(f"Wind 拉取 {code} 失败：{out[-600:]}")
-        rows.extend(parse_wind_csv_text(csv_path.read_text(encoding="utf-8")))
-        log(f"  Wind {code} {chunk_start} ~ {chunk_end} OK（累计 {len(rows)} 条）")
-        chunk_start = chunk_end + timedelta(days=1)
-    return rows
-
-
-def parse_ifind_csv(path: Path) -> list[dict]:
-    rows = []
-    lines = path.read_text(encoding="utf-8").splitlines()
-    header = lines[0].split(",")
-    for line in lines[1:]:
-        if not line.strip():
-            continue
-        cols = dict(zip(header, line.split(",")))
-        if not cols.get("time") or not cols.get("close"):
-            continue
-        rows.append({"d": cols["time"][:10], "c": round(float(cols["close"]), 4)})
-    return rows
-
-
-def fetch_ifind_chunked(code: str, begin: date, end: date) -> list[dict]:
-    """iFinD 单次最多 3 年，分块拉取"""
-    ifind = find_ifind_tool()
-    TMP_DIR.mkdir(exist_ok=True)
-    rows: list[dict] = []
-    chunk_start = begin
-    while chunk_start <= end:
-        chunk_end = min(chunk_start + timedelta(days=365 * 3 - 1), end)
-        csv_path = TMP_DIR / f"ifind_{code.replace('.', '_')}.csv"
-        if csv_path.exists():
-            csv_path.unlink()
-        params = {
-            "ticker": code,
-            "start_date": chunk_start.isoformat(),
-            "end_date": chunk_end.isoformat(),
-            "interval": "D" if DAILY else "M",
-            "adjust": "forward",
-            "file_path": str(csv_path).replace("\\", "/"),
-        }
-        for attempt in range(3):
-            r = subprocess.run(
-                [sys.executable, str(ifind), "call",
-                 "--api-name", "ifind_get_price",
-                 "--params-json", json.dumps(params)],
-                capture_output=True, text=True, timeout=300,
-            )
-            if r.returncode == 0 and csv_path.exists():
-                break
-            log(f"  iFinD {code} {chunk_start}~{chunk_end} 第 {attempt + 1} 次失败，重试")
-        else:
-            raise SystemExit(f"iFinD 拉取 {code} 失败：{r.stdout[-400:]} {r.stderr[-400:]}")
-        rows.extend(parse_ifind_csv(csv_path))
-        log(f"  iFinD {code} {chunk_start} ~ {chunk_end} OK（累计 {len(rows)} 条）")
-        chunk_start = chunk_end + timedelta(days=1)
-    return rows
+def run(cmd: list) -> int:
+    log("执行: " + " ".join(str(c) for c in cmd))
+    return subprocess.run([str(c) for c in cmd], cwd=str(ROOT)).returncode
 
 
 def main() -> None:
-    today = date.today()
-    only = {a for a in sys.argv[1:] if not a.startswith("--")}  # 可指定只抓某些 key
-    for key, meta in ASSETS.items():
-        if only and key not in only:
-            continue
-        log(f"=== {key} {meta['name']}（{'日线' if DAILY else '月线'}）===")
-        if meta["source"] == "ifind":
-            begin = datetime.strptime(meta["begin"], "%Y-%m-%d").date()
-            rows = fetch_ifind_chunked(meta["code"], begin, today)
-        elif meta["source"] == "wind_fund":
-            begin = datetime.strptime(meta["begin"], "%Y-%m-%d").date()
-            rows = fetch_wind_chunked("fund_data", "get_fund_kline", meta["code"], begin, today)
-        elif meta["source"] == "wind_index":
-            begin = datetime.strptime(meta["begin"], "%Y-%m-%d").date()
-            rows = fetch_wind_chunked("index_data", "get_index_kline", meta["code"], begin, today)
-        else:
-            raise SystemExit(f"未知数据源：{meta['source']}")
-        write_json(key, rows)
+    log("=== 全量重建（免费源）===")
+    # 1) 刷新 collector（免费源）
+    if COLLECTOR_PY.exists():
+        rc = run([COLLECTOR_PY, COLLECTOR_DIR / "main.py", "update"])
+        if rc != 0:
+            log("⚠️ collector update 返回非零，将使用现有 SQLite 继续导出")
+    else:
+        log(f"未找到 collector python：{COLLECTOR_PY}，跳过刷新（使用现有 SQLite）")
+    # 2) 导出到 src/data
+    dca_data = ROOT / "src" / "data"
+    if COLLECTOR_PY.exists():
+        rc = run([COLLECTOR_PY, COLLECTOR_DIR / "export_dca.py",
+                  COLLECTOR_DIR / "global_index.db", dca_data])
+    else:
+        rc = run([sys.executable, COLLECTOR_DIR / "export_dca.py",
+                  COLLECTOR_DIR / "global_index.db", dca_data])
+    if rc != 0:
+        log("⚠️ 导出失败")
+        return
+    log("=== 完成：已用免费源重建 src/data ===")
 
 
 if __name__ == "__main__":
