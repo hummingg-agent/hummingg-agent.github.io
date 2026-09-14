@@ -2,3 +2,4 @@ User-agent: *
 Allow: /
 
 Sitemap: https://dingtouji.com/sitemap.xml
+Sitemap: https://dingtouji.hummingg.com/sitemap.xml
